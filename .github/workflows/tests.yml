@@ -1,0 +1,20 @@
+name: Python tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q
+      - run: python scripts/http_check.py
+      - run: python scripts/check_publication.py
+# 設定例。今回の作業ではGitHub Actionsは実行していない。
+# 公開前に依存アクションの版・固定SHA方針を所有者が確認する。

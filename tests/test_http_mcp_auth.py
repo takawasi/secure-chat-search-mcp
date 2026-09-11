@@ -1,180 +1,114 @@
 import json
 import time
-from pathlib import Path
-import httpx
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
+import jwt
 from fastapi.testclient import TestClient
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from secure_chat_search.auth import Auth, Principal, FileTokenProvider
+from secure_chat_search.config import Settings
 from secure_chat_search.app import create_app
-from secure_chat_search.auth import Auth, DemoMemberships
-from secure_chat_search.chatwork import ChatworkClient, CredentialStore
-from secure_chat_search.core import Database, DomainError, Settings, User
-from secure_chat_search.demo import change_membership
+from secure_chat_search.errors import AppError
 
 
-def gateway_settings(tmp_path):
-    private=rsa.generate_private_key(public_exponent=65537,key_size=2048)
-    pub=tmp_path/'public.pem'
-    pub.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo))
-    credentials=tmp_path/'credentials.json'
-    credentials.write_text('{}')
-    settings=Settings(_env_file=None,mode='gateway',database_url='sqlite:///'+str(tmp_path/'private.sqlite3'),
-        public_url='http://testserver',jwt_issuer='test-issuer',jwt_audience='test-audience',
-        jwt_public_key_file=str(pub),credentials_file=str(credentials))
-    return settings,private
+def test_no_token_rejected(client):
+    assert client.post("/api/search",json={"query":"納期"}).status_code==401
 
+def test_forged_identity_field_rejected(client,auth_headers):
+    assert client.post("/api/search",headers=auth_headers,json={"query":"納期","user_id":"mori"}).status_code==422
 
-def claims():
-    now=int(time.time())
-    return dict(sub='alice',iss='test-issuer',aud='test-audience',iat=now,nbf=now,exp=now+120)
+def test_altered_bearer_rejected(client,auth_headers):
+    assert client.get("/api/me",headers={"Authorization":auth_headers["Authorization"]+"x"}).status_code==401
 
+@pytest.mark.parametrize("claim,value",[("exp",1),("aud","other"),("iss","other"),("nbf",9999999999)])
+def test_claim_validation(app,claim,value):
+    now=int(time.time());s=app.state.settings
+    data={"sub":"aoki","tid":"demo","iss":s.jwt_issuer,"aud":s.jwt_audience,"exp":now+300,"iat":now,"nbf":now}
+    data[claim]=value;token=jwt.encode(data,s.jwt_secret,algorithm="HS256")
+    with pytest.raises(AppError):app.state.auth.verify("Bearer "+token)
 
-def test_valid_gateway_token(tmp_path):
-    settings,key=gateway_settings(tmp_path)
-    token=jwt.encode(claims(),key,algorithm='RS256')
-    assert Auth(settings,DemoMemberships()).authenticate('Bearer '+token).sub=='alice'
+def test_rs256_integration_auth_and_demo_disabled(db):
+    key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    pub=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    s=Settings(mode="integration",database_url="sqlite:///:memory:",base_url="https://search.example",
+               jwt_public_key=pub,jwt_issuer="https://issuer.example",token_file="/not-read-in-this-test")
+    class Live:
+        def current_group_rooms(self,p,account):return {"100"}
+    app=create_app(s,db,Live());now=int(time.time())
+    token=jwt.encode({"sub":"aoki","tid":"demo","iss":s.jwt_issuer,"aud":s.jwt_audience,"exp":now+60,"nbf":now,"iat":now},key,algorithm="RS256")
+    assert app.state.auth.verify("Bearer "+token)==Principal("demo","aoki")
+    with TestClient(app) as c:
+        assert c.post("/api/demo/session",json={"subject":"aoki"}).status_code==404
+        assert c.post("/api/demo/reset",headers={"Authorization":"Bearer "+token}).status_code==404
+        assert c.get("/api/me",headers={"Authorization":"Bearer "+token}).json()["rooms"][0]["id"]=="100"
 
+def test_bad_integration_settings_rejected():
+    with pytest.raises(ValueError):Settings(mode="integration").validate()
 
-@pytest.mark.parametrize('case',['expired','audience','issuer','future','too_long','missing_sub','wrong_algorithm','cookie_only'])
-def test_gateway_rejects_invalid_identity(tmp_path,case):
-    settings,key=gateway_settings(tmp_path)
-    data=claims()
-    if case=='expired': data.update(iat=int(time.time())-300,nbf=int(time.time())-300,exp=int(time.time())-10)
-    if case=='audience': data['aud']='elsewhere'
-    if case=='issuer': data['iss']='elsewhere'
-    if case=='future': data['iat']=data['nbf']=int(time.time())+100
-    if case=='too_long': data['exp']=data['iat']+301
-    if case=='missing_sub': del data['sub']
-    token=jwt.encode(data,'not-a-real-key-of-any-service',algorithm='HS256') if case=='wrong_algorithm' else jwt.encode(data,key,algorithm='RS256')
-    with pytest.raises(DomainError) as exc:
-        Auth(settings,DemoMemberships()).authenticate(None if case=='cookie_only' else 'Bearer '+token,'alice')
-    assert exc.value.status==401
+def test_embedding_external_cleartext_rejected():
+    with pytest.raises(ValueError):Settings(allow_embeddings=True,embedding_url="http://evil.example",embedding_model="x").validate()
 
+def test_origin_dns_rebinding_and_cache(client,auth_headers):
+    assert client.get("/api/me",headers={**auth_headers,"Origin":"https://attacker.example"}).status_code==403
+    assert client.get("/",headers={"Host":"attacker.example"}).status_code==400
+    r=client.get("/api/me",headers=auth_headers)
+    assert r.headers["cache-control"]=="no-store" and "frame-ancestors 'none'" in r.headers["content-security-policy"]
 
-def test_gateway_demo_endpoints_are_disabled(tmp_path):
-    settings,key=gateway_settings(tmp_path)
-    app=create_app(settings)
-    with app.state.db.session() as session:
-        session.add(User(sub='alice',name='社員',account_id='101',enabled=True))
-    token=jwt.encode(claims(),key,algorithm='RS256')
-    with TestClient(app) as client:
-        assert client.post('/api/demo/session',json={'user':'alice'}).status_code==404
-        assert client.post('/api/demo/reset',json={},headers={'Authorization':'Bearer '+token}).status_code==404
-        assert client.get('/docs').status_code==404
-    app.state.db.close()
+def test_request_size_limit(client,auth_headers):
+    r=client.post("/api/search",headers=auth_headers,content=b"x"*(2*1024*1024+1))
+    assert r.status_code==413
 
+def test_mcp_init_list_call_fetch(client,mcp_headers):
+    def call(method,params={}):
+        r=client.post("/mcp",headers=mcp_headers,json={"jsonrpc":"2.0","id":1,"method":method,"params":params})
+        assert r.status_code==200;return r.json()
+    init=call("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"tests","version":"1"}})
+    assert init["result"]["protocolVersion"]=="2025-06-18"
+    tools=call("tools/list")["result"]["tools"]
+    assert {x["name"] for x in tools}=={"search","fetch","read_timeline"}
+    assert all(x["annotations"]["readOnlyHint"] for x in tools)
+    result=call("tools/call",{"name":"search","arguments":{"query":"納期"}})["result"]
+    assert result["structuredContent"]==json.loads(result["content"][0]["text"])
+    mid=result["structuredContent"]["results"][0]["id"]
+    assert call("tools/call",{"name":"fetch","arguments":{"id":mid}})["result"]["structuredContent"]["text"]
+    assert call("ping")["result"]=={}
 
-def test_dataset_mode_cannot_change(env):
-    other=env.settings.model_copy(update={'mode':'gateway'})
-    database=Database(other)
-    with pytest.raises(DomainError) as exc:
-        database.initialize()
-    assert exc.value.code=='dataset_mode'
-    database.close()
+def test_mcp_scope_spoof_rejected(client,mcp_headers):
+    body={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"query":"予算","user_id":"mori"}}}
+    assert client.post("/mcp",headers=mcp_headers,json=body).json()["error"]["code"]==-32602
 
+def test_mcp_tool_error_not_raw_trace(client,mcp_headers):
+    body={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fetch","arguments":{"id":"unknown"}}}
+    r=client.post("/mcp",headers=mcp_headers,json=body).json()["result"]
+    assert r["isError"] and "Traceback" not in str(r)
 
-def test_cloud_run_rejects_demo(monkeypatch):
-    monkeypatch.setenv('K_SERVICE','ci-test-service')
-    with pytest.raises(ValueError):
-        Settings(_env_file=None,mode='demo')
+def test_mcp_notification_202_and_get405(client,mcp_headers):
+    r=client.post("/mcp",headers=mcp_headers,json={"jsonrpc":"2.0","method":"notifications/initialized"})
+    assert r.status_code==202 and r.content==b""
+    assert client.get("/mcp",headers=mcp_headers).status_code==405
 
+def test_mcp_parse_error_and_batch_rejection(client,mcp_headers):
+    headers={**mcp_headers,"Content-Type":"application/json"}
+    assert client.post("/mcp",headers=headers,content="{").json()["error"]["code"]==-32700
+    assert client.post("/mcp",headers=headers,json=[]).status_code==400
 
-def test_gateway_requires_auth_configuration(tmp_path):
-    with pytest.raises(ValueError):
-        Settings(_env_file=None,mode='gateway')
+def test_mcp_accept_and_version_validation(client,mcp_headers):
+    body={"jsonrpc":"2.0","id":1,"method":"ping"}
+    assert client.post("/mcp",headers={**mcp_headers,"Accept":"application/json"},json=body).status_code==406
+    assert client.post("/mcp",headers={**mcp_headers,"MCP-Protocol-Version":"unsupported"},json=body).status_code==400
 
+def test_real_token_file_expiry_and_permissions(tmp_path):
+    file=tmp_path/"tokens.json";file.write_text(json.dumps({"t":{"u":{"access_token":"not-real","expires_at":time.time()+200}}}));file.chmod(0o600)
+    provider=FileTokenProvider(str(file));assert provider.get_access_token(Principal("t","u"))=="not-real"
+    file.chmod(0o644)
+    with pytest.raises(AppError):provider.get_access_token(Principal("t","u"))
 
-@pytest.mark.parametrize('status',[301,401,403,429,500,503])
-def test_upstream_errors_are_sanitized(status):
-    def handler(request):
-        return httpx.Response(status,text='private-token-and-message',headers={'location':'https://unexpected.example'})
-    with ChatworkClient('synthetic-token',transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(DomainError) as exc:
-            client.messages('1001')
-        assert exc.value.status==503 and 'private-token' not in str(exc.value)
-
-
-def test_api_uses_fixed_host_and_force_one():
-    def handler(request):
-        assert request.url.host=='api.chatwork.com'
-        assert request.url.path=='/v2/rooms/1001/messages'
-        assert request.url.params['force']=='1'
-        assert request.headers['Authorization']=='Bearer synthetic-token'
-        return httpx.Response(200,json=[])
-    with ChatworkClient('synthetic-token',transport=httpx.MockTransport(handler)) as client:
-        assert client.messages('1001')==[]
-        with pytest.raises(DomainError):
-            client.messages('https://evil.example/')
-
-
-@pytest.mark.parametrize('mismatch',[False,True])
-def test_credential_store_rejects_expired_or_wrong_account(tmp_path,mismatch):
-    path=tmp_path/'credentials.json'
-    path.write_text(json.dumps({'alice':{'account_id':'999' if mismatch else '101','access_token':'synthetic-token','expires_at':int(time.time())+100 if mismatch else 0}}))
-    with pytest.raises(DomainError):
-        CredentialStore(str(path)).client_for('alice','101')
-
-
-def test_http_auth_headers_and_no_spoofing(env):
-    app=create_app(env.settings,db=env.db)
-    with TestClient(app) as client:
-        assert client.get('/healthz').json()['status']=='ok'
-        assert client.post('/api/search',json={'query':'納期'}).status_code==401
-        assert client.post('/mcp/',json={}).status_code==401
-        assert client.post('/api/demo/session',json={'user':'alice'}).status_code==200
-        response=client.post('/api/search',json={'query':'予算','user':'bob','sub':'bob'})
-        assert response.status_code==200 and response.json()['results']==[]
-        assert response.headers['cache-control']=='no-store'
-        assert "frame-ancestors 'none'" in response.headers['content-security-policy']
-        assert client.get('/api/session',headers={'Host':'evil.example'}).status_code==400
-        assert client.post('/api/demo/reset',json={},headers={'Origin':'https://evil.example'}).status_code==403
-        assert client.post('/webhooks/chatwork',content=b'{}').status_code==404
-        assert client.post('/api/demo/session',json={'user':'disabled'}).status_code==200
-        assert client.get('/api/session').status_code==403
-
-
-def test_body_limit_and_duplicate_auth(env):
-    settings=env.settings.model_copy(update={'max_request_bytes':1024})
-    with TestClient(create_app(settings,db=env.db)) as client:
-        headers={'Authorization':'Bearer demo:alice','Content-Type':'application/json'}
-        assert client.post('/api/search',content=b'x'*1025,headers=headers).status_code==413
-        assert client.get('/api/session',headers=[('Authorization','Bearer demo:alice'),('Authorization','Bearer demo:bob')]).status_code==400
-
-
-def test_japanese_static_files(env):
-    with TestClient(create_app(env.settings,db=env.db)) as client:
-        assert '過去の経緯まで' in client.get('/').text
-        assert 'textContent' in client.get('/static/app.js').text
-        assert client.get('/static/style.css').status_code==200
-
-
-@pytest.mark.asyncio
-async def test_official_mcp_client_round_trip_and_revocation(env):
-    from mcp import ClientSession
-    from mcp.client.streamable_http import streamable_http_client
-    app=create_app(env.settings,db=env.db)
-    async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver',
-                                    headers={'Authorization':'Bearer demo:alice'}) as client:
-            async with streamable_http_client('http://testserver/mcp/',http_client=client) as (read,write,_):
-                async with ClientSession(read,write) as session:
-                    await session.initialize()
-                    tools=await session.list_tools()
-                    assert {tool.name for tool in tools.tools}=={'search','fetch','read_room_period'}
-                    result=await session.call_tool('search',{'query':'納期'})
-                    assert not result.isError
-                    content=json.loads(result.content[0].text)
-                    assert content==result.structuredContent
-                    assert len(content['results'])==4
-                    key=content['results'][0]['id']
-                    fetched=await session.call_tool('fetch',{'id':key})
-                    assert not fetched.isError and fetched.structuredContent['id']==key
-                    period=await session.call_tool('read_room_period',{'room_id':'1001','since':'2023-01-01T00:00:00+09:00','until':'2026-12-31T23:59:59+09:00','limit':2})
-                    assert period.structuredContent['next_cursor']
-                    change_membership(env.db,'alice',False)
-                    denied=await session.call_tool('fetch',{'id':key})
-                    assert denied.isError and denied.structuredContent['error']=='not_found'
-                    after=await session.call_tool('search',{'query':'納期'})
-                    assert after.structuredContent['results']==[]
+def test_demo_actions(client,auth_headers):
+    assert client.post("/api/demo/new-message",headers=auth_headers,json={}).status_code==200
+    assert client.post("/api/search",headers=auth_headers,json={"query":"新着"}).json()["results"]
+    assert client.post("/api/demo/import",headers=auth_headers,json={}).json()["replayed"]
+    client.post("/api/demo/gap",headers=auth_headers,json={})
+    assert client.post("/api/search",headers=auth_headers,json={"query":"納期"}).json()["meta"]["warnings"]
+    client.post("/api/demo/membership",headers=auth_headers,json={"room_id":"101","enabled":False})
+    assert not client.post("/api/search",headers=auth_headers,json={"query":"星野商事","mode":"keyword"}).json()["results"]
+    assert client.post("/api/demo/reset",headers=auth_headers,json={}).status_code==200

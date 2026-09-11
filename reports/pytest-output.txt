@@ -1,0 +1,27 @@
+........................................................................ [ 58%]
+....................................................                     [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.13.5-final-0 ________________
+
+Name                                   Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------
+src/secure_chat_search/__init__.py         1      0   100%
+src/secure_chat_search/app.py            175     11    94%   57, 95, 98, 130, 134, 141, 158, 167-168, 186, 207
+src/secure_chat_search/auth.py            75      5    93%   25, 42, 62, 65, 90
+src/secure_chat_search/chatwork.py        72      8    89%   33, 41, 44-45, 50, 54, 69, 78
+src/secure_chat_search/cli.py             67     67     0%   2-71
+src/secure_chat_search/config.py          55     13    76%   29, 35, 37, 42, 46, 52-72
+src/secure_chat_search/db.py              96      2    98%   102-103
+src/secure_chat_search/demo.py            45      1    98%   50
+src/secure_chat_search/directory.py       39      3    92%   12, 18, 21
+src/secure_chat_search/embeddings.py      48      5    90%   20, 23, 26-27, 36
+src/secure_chat_search/errors.py           7      0   100%
+src/secure_chat_search/ingest.py         124      7    94%   53, 81, 95, 101, 111, 117, 131
+src/secure_chat_search/mcp.py             84     11    87%   56, 68, 71, 74, 78, 81, 98-102, 110
+src/secure_chat_search/search.py         114      5    96%   109, 147-150, 158
+src/secure_chat_search/sync.py           102     15    85%   20, 48, 72-73, 75, 85-86, 101, 108-114
+src/secure_chat_search/text.py            30      1    97%   15
+--------------------------------------------------------------------
+TOTAL                                   1134    154    86%
+Coverage JSON written to file reports/coverage.json
+124 passed in 8.43s

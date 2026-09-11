@@ -1,0 +1,69 @@
+{
+  "mode": "Python HTTPクライアント→別プロセスUvicorn→FastAPI",
+  "checks": [
+    {
+      "name": "別プロセスのHTTPサーバーが起動する",
+      "passed": true
+    },
+    {
+      "name": "日本語HTMLをHTTPで取得",
+      "passed": true
+    },
+    {
+      "name": "JavaScriptとCSSが配信される",
+      "passed": true
+    },
+    {
+      "name": "無認証の検索を拒否",
+      "passed": true
+    },
+    {
+      "name": "架空利用者のデモセッション",
+      "passed": true
+    },
+    {
+      "name": "過去の納期変更を検索",
+      "passed": true
+    },
+    {
+      "name": "根拠本文を再認可して取得",
+      "passed": true
+    },
+    {
+      "name": "MCP初期化を実HTTPで交換",
+      "passed": true
+    },
+    {
+      "name": "MCP検索とRESTが同じ根拠を返す",
+      "passed": true
+    },
+    {
+      "name": "MCP本文とREST本文が一致",
+      "passed": true
+    },
+    {
+      "name": "別利用者による原文ID直接参照を拒否",
+      "passed": true
+    },
+    {
+      "name": "退室後の原文取得を拒否",
+      "passed": true
+    },
+    {
+      "name": "不正Originを拒否",
+      "passed": true
+    },
+    {
+      "name": "通知は本文なし202",
+      "passed": true
+    },
+    {
+      "name": "SSEなしのGETは405",
+      "passed": true
+    },
+    {
+      "name": "キャッシュ抑止ヘッダー",
+      "passed": true
+    }
+  ]
+}

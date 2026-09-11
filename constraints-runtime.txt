@@ -1,0 +1,24 @@
+# 今回のPython 3.13.5環境に実在したランタイム版。全プラットフォームの保証ではない。
+# 利用例: python -m pip install -c constraints-runtime.txt -e .
+fastapi==0.128.2
+starlette==0.50.0
+uvicorn==0.48.0
+SQLAlchemy==2.0.50
+PyJWT==2.13.0
+cryptography==46.0.4
+httpx==0.28.1
+pydantic==2.13.4
+pydantic_core==2.46.4
+annotated-types==0.7.0
+annotated-doc==0.0.4
+typing-extensions==4.16.0
+typing-inspection==0.4.2
+anyio==4.13.0
+certifi==2026.5.20
+httpcore==1.0.9
+h11==0.16.0
+idna==3.17
+click==8.1.8
+cffi==2.0.0
+pycparser==3.0
+greenlet==3.5.1

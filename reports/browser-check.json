@@ -1,0 +1,53 @@
+{
+  "mode": "Chromium描画＋FastAPI TestClient接続（ブラウザHTTP接続は未検証）",
+  "checks": [
+    {
+      "name": "営業の納期検索と原文表示",
+      "passed": true
+    },
+    {
+      "name": "利用者切替で営業の根拠を消去",
+      "passed": true
+    },
+    {
+      "name": "開発側の障害検索",
+      "passed": true
+    },
+    {
+      "name": "退室すると検索結果と原文が消える",
+      "passed": true
+    },
+    {
+      "name": "復帰すると許可範囲で再取得",
+      "passed": true
+    },
+    {
+      "name": "新着データを実際に保存して検索",
+      "passed": true
+    },
+    {
+      "name": "欠損疑いを明示",
+      "passed": true
+    },
+    {
+      "name": "CSV再取り込みの説明",
+      "passed": true
+    },
+    {
+      "name": "モバイル横はみ出しなし",
+      "passed": true
+    },
+    {
+      "name": "本文のHTMLを要素として解釈しない",
+      "passed": true
+    },
+    {
+      "name": "本文に埋めたスクリプトが実行されない",
+      "passed": true
+    },
+    {
+      "name": "JavaScript実行エラーなし",
+      "passed": true
+    }
+  ]
+}

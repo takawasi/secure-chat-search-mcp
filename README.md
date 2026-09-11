@@ -1,75 +1,138 @@
-# 権限を守るチャット履歴検索 / secure-chat-search-mcp
+# secure-chat-search-mcp
+## ことのは検索 — 「前に、どう決めた？」を、見える範囲だけで探す。
 
-社員が閲覧できるグループチャットだけを対象に、過去の経緯と最近の発言を根拠付きで探すための、公開・評価用リファレンス実装です。
+社員が許可されたチャットの過去・最新ログから、判断の経緯と原文を探すための日本語PoCです。
+既存のChatGPT／MCPと認証を捨てず、履歴検索部分を追加するための参照実装として作りました。
 
-**この最初のコミットは説明と計画です。以下の機能は実装予定であり、実装・検証済みとはまだ主張していません。** 実装後に検証結果を反映します。顧客のコード、会話、認証情報は含めません。
+**v0.1.0：応募用の汎用PoC。架空データで動きます。顧客の実データ・コード・認証情報は含みません。**
+**本番認証を含む完成品、実Chatworkへの接続実績、ChatGPT実画面での接続認証済み製品ではありません。**
 
-## 利用者に届けるもの
+![日本語の検索画面と原文表示](reports/01_検索と根拠.png)
 
-「星野商事との納期変更は、いつ、なぜ決まった？」という質問について、許可されたルーム内の過去・最新メッセージを検索し、発言者・時刻・根拠を確認できるようにします。ChatGPT側の既存MCP・本人確認は捨てず、検索部分を追加する構成です。
+[画面付きの実装概要](docs/概要.html)
 
-公開デモでは架空の日本語データを使います。担当者を切り替え、同じ検索でも見えるルームが変わること、退室すると本文取得も拒否されることを確認できます。デモの本人切り替えは本番認証ではありません。
+## 最初の5分
 
-## 実装範囲と境界
+Python 3.11以上を用意し、このREADMEがあるフォルダで実行します。初回のパッケージ取得にはインターネット接続が必要です。今回の検証環境はPython 3.13.5です。
 
-- 実装するもの：履歴CSV取り込み、ID付き最新データ同期、共通認可、日本語検索、MCP search/fetchと期間取得、日本語の評価画面、再現可能な自動テスト、既存PoCへの接続ガイド。
-- 認証情報不要で動く評価構成を用意し、PostgreSQLと実Chatwork APIに接続できる境界を分離します。意味検索は実際のローカル多言語モデルを使う任意構成とし、未導入時は文字列検索であることを表示します。
-- 相手のGoogle Workspace／Chatwork OAuth／Firestore構成への組み込み、相手の現行CSVでの検証、実GCPへの配備・負荷試験は、相手の環境が必要です。公開実装だけで完了とはしません。
-- Chatworkの最大100件制限やWebhookの再送なしを無視して、完全同期を保証しません。同期時点と欠損疑いを可視化します。
-- 顧客固有のコード・実データ・秘密情報は公開しません。公開と利用許諾は別であり、包括的なOSSライセンスはこの時点では付与していません。
-
-## 予定ファイルマップ
-
-```text
-README.md                     入口・起動・検証済み範囲
-AGENTS.md                     引き継ぎ方針と完了条件
-docs/
-  PLAN.md                     実装計画・現在地・完了記録
-  FILEMAP.md                  ファイルの責務と読む順番
-  ARCHITECTURE.md             構成・データ経路・認可
-  CHATWORK.md                 公式仕様・取得限界・照合方針
-  INTEGRATION.md              既存PoCへの追加手順
-  SECURITY.md                 脅威・防御・保証しない範囲
-  DEMO.md                     評価者向け操作シナリオ
-  PROPOSAL.md                 提案時に使える日本語説明
-  VERIFICATION.md             実行した検査と未検証事項
-  LESSONS.md                  設計判断・失敗知識・更新条件
-src/secure_chat_search/
-  config.py                   明示的なデモ／統合設定
-  models.py                   DBモデル
-  database.py                 DB初期化・接続
-  auth.py                     本人確認とルーム認可
-  ingestion.py                CSV正規化・再取り込み
-  chatwork.py                 実APIクライアント
-  sync.py                     更新取り込み・欠損検出
-  search.py                   ACL付き検索・本文・期間取得
-  embeddings.py               任意のローカル意味検索
-  mcp_server.py               公式SDKによるMCPツール
-  app.py                      HTTP APIと日本語デモ
-  cli.py                      起動・取り込み・同期コマンド
-  static/                     日本語デモの画面
-sample_data/                  架空データと取り込み設定
-scripts/                      再現用スモークテスト
-infra/                        GCP構成例・導入手順
-tests/                        認可・取り込み・検索・MCPの検証
-.github/workflows/            CI
-Dockerfile / compose.yaml     コンテナ起動
-pyproject.toml / uv.lock       依存関係と再現性
+macOS / Linux:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+chat-search serve
 ```
 
-## 実装計画
+Windows PowerShell:
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\chat-search.exe serve
+```
 
-1. **目的・境界・ファイルマップを先行記録**（このコミット）。公式資料と現在のSDKを確認する。
-2. **中核を実装**。保存、CSV取り込み、権限判定、検索・本文取得、同期を順に接続する。
-3. **利用経路を完成**。日本語デモ、MCP、CLI、実Chatwork接続境界、PostgreSQL／GCP構成を追加する。
-4. **異常系を検証**。別人・退室・DM・My Chat・認証失効・SQL入力・重複・古い更新・削除・100件超過疑いをテストする。
-5. **実物で確認**。ブラウザの操作、MCPクライアント接続、可能なDB構成を実行し、結果を記録する。
-6. **検収・公開**。READMEを実装済み内容に更新し、検証結果・未検証の外部接続・提案文・引き継ぎ書を残す。
+ブラウザで `http://127.0.0.1:8000` を開きます。初回起動時に架空データを `data/chat-search.db` に作成します。
+依存関係を入れた後は `scripts/start.sh` または `scripts/start.ps1` でも起動できます。
+`--port 8001` のようにポートを変更できます。終了はCtrl+Cです。
 
-## 完了条件
+デモを動かすだけなら、Chatworkアカウント・Google Cloud・OpenAIのAPIキー・モデルダウンロードは不要です。
+同じデモを開く人は架空利用者を自由に切り替えられます。**実データを入れないでください。**
 
-- 初見の評価者が日本語の説明に沿って起動・操作できる。
-- 検索と本文取得が同じ認可を通り、許可外情報を取得しない。
-- 模擬接続と実接続、文字列検索と意味検索、実行済みと未検証を混同しない。
-- テストを実行し、結果を証拠付きで記録する。
-- 秘密情報と顧客情報を含めず、このリポジトリへコードと説明を保存する。
+## 見せる順番
+
+1. 「青木｜営業」で `納期` を検索する。2024年の検討案と決定を見比べ、原文・発言日時・取得元を確認する。
+2. 「佐藤｜開発」へ切り替える。同じ検索から営業の情報が消える。`障害` で開発の会話が見つかる。
+3. 青木に戻し、`星野商事` を検索して「担当ルームを退室」を押す。検索と原文の両方から除外され、「復帰」で再表示される。
+4. 「新着発言を追加」でDBへ保存した新着を検索する。「同じCSVを再取り込み」で重複しないことを確認する。
+5. 「欠損警告を模擬表示」で同期状態の注意を確認する。このボタンは警告表示の模擬操作で、実際に履歴を削除していない。
+
+UIの回答は原文です。架空の生成AI回答を表示して、LLM連携済みのように見せることはしていません。
+
+## 実装されているもの
+
+| 項目 | この配布物の状態 |
+|---|---|
+| 日本語画面・利用者切替・根拠表示 | 実装。画面操作を検証 |
+| 共通ACL | サーバー側でtenant・本人・現在の参加グループ・承認済み対象を確認。検索前にSQLで絞る |
+| 本文・期間取得 | `fetch`でも再認可。期間取得はページ送りを返し、上位検索と混同しない |
+| CSV | 日本語／英語の正規化列、UTF-8/CP932、原子的取り込み、再実行、明示的な削除行 |
+| IDあり／IDなし履歴 | IDありは統合。IDなしは明示したルームのスナップショット置換。曖昧なAPI同一視をしない |
+| 最新同期 | 実Chatwork向け読取アダプター、`force=1`、重複排除、旧版無視、100件未知の警告 |
+| Webhook | 実仕様の署名検証、DB永続キュー、二重受付排除、単一worker処理、失敗最大5回 |
+| MCP | 読取専用 `search` / `fetch` / `read_timeline`。ステートレスHTTP JSON応答 |
+| 文字列・関連語検索 | 日本語NFKC正規化＋部分一致＋小さな明示辞書。SQLの`%`・`_`は文字として扱う |
+| 意味検索 | 任意のEmbedding HTTPサービスに明示接続した場合のみ有効。ベクトル比較＋RRFを実装。実モデル未接続 |
+| 認証統合口 | RS256の専用JWT検証、現在のChatwork本人・参加ルーム確認、既存トークン管理への接続口 |
+| DB | SQLiteで動作確認。SQLAlchemyによるPostgreSQL接続設定とDDL確認あり。実PostgreSQLは未検証 |
+| 起動・運用資料 | Docker設定、Cloud Run構成案、統合手順、公開前確認、Work引継ぎ |
+
+**既定の関連語検索は、AIの意味検索ではありません。** 例えば「納期・期限・納品」を同じ辞書群として扱います。
+意味検索を設定した場合も、許可済みの最大2,000件をアプリ側で比較する小規模方式です。永続ベクトル索引・`pgvector`/`pg_bigm`は今回の実装に含みません。
+
+## 構成
+
+```text
+日本語の確認画面 / 既存MCP / 本配布物のMCP
+                  │
+       本人確定 → 共通ACL → SearchService
+                  │
+          SQLite / PostgreSQL接続口
+             ▲               ▲
+     正規化CSVインポート   最新API / Webhookキュー
+```
+
+主な入口は `src/secure_chat_search/search.py` です。UIとMCPは同じ処理を利用します。
+既存MCPに同じPythonプロセスで組み込める場合は、このクラスを接続し、新しい認証画面を増やさない案を推奨します。
+
+## 検証する
+
+```bash
+python -m pytest -q
+python scripts/http_check.py
+python scripts/check_publication.py
+```
+
+カバレッジ付き:
+```bash
+python -m pytest --cov=secure_chat_search --cov-report=term-missing
+```
+
+ブラウザ操作試験（Chromiumの準備が必要）:
+```bash
+python -m playwright install chromium
+python scripts/ui_check.py
+```
+
+インストール済みChromiumを使う場合は `CHROMIUM_PATH` を指定できます。
+この会話の実行環境ではブラウザのHTTPアクセスが管理ポリシーで遮断されたため、画面試験は
+`python scripts/ui_check.py --asgi-bridge` で実HTML/CSS/JSとFastAPI TestClientをつないで実施しました。
+ブラウザから実HTTPを経由する通し試験とは分け、実HTTPサーバーは別の `http_check.py` で確認しています。
+詳しい結果と未検証範囲は [検証結果](reports/検証結果.md) にあります。
+
+## CSVを試す
+
+`examples/history.csv` は**このPoCの正規化形式**です。Chatwork管理者CSVの実出力そのものではありません。
+顧客CSVは、列・日時・削除表示・編集履歴を確認してこの形式へ変換します。
+
+```bash
+chat-search import examples/history.csv --tenant demo --snapshot-at 2026-09-01T04:00:00+09:00
+chat-search import examples/history_idless.csv --tenant demo --snapshot-at 2026-09-01T04:00:00+09:00 --replace-room 500
+```
+
+先にデモサーバーを一度起動して、ルームを作成してください。
+IDなしCSVは部屋の完全スナップショットを一括で指定します。分割CSVを同じ部屋へ順番に置換すると、前の分割分が消えます。
+上限を超えるIDなし履歴は、実データ対応時にステージング→一括切替へ拡張する対象です。
+
+## 資料
+
+[目的と範囲](docs/01_目的と範囲.md) / [ファイルマップ](docs/02_ファイルマップ.md) / [先に作った計画](docs/03_実装計画.md)
+
+[設計](docs/04_設計.md) / [Chatwork仕様と制限](docs/05_Chatwork仕様と制限.md) / [既存PoCへの統合](docs/06_既存PoCへの統合.md)
+
+[提案文](docs/07_提案文.md) / [運用とセキュリティ](docs/08_運用とセキュリティ.md) / [Workへの引継ぎ](WORK_HANDOFF.md)
+
+## 公開・利用上の境界
+
+デモの役割切替、連携用JWT、ChatworkのOAuthトークンは別の仕組みです。
+実データを扱う前に、認証統合・CSV照合・削除反映・同期負荷・クラウド権限・監視を検証してください。
+`SECURITY.md` と `PUBLICATION_CHECKLIST.md` を参照してください。
+この会話からGitHubへは書き込んでいません。再利用条件のライセンスは未指定です。

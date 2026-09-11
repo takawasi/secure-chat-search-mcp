@@ -1,0 +1,19 @@
+{
+  "tenant": "example-org",
+  "users": [
+    {
+      "subject": "google-sub-example",
+      "name": "検証する利用者",
+      "account_id": "8001",
+      "enabled": true
+    }
+  ],
+  "rooms": [
+    {
+      "room_id": "10001",
+      "name": "承認したグループルーム",
+      "kind": "group",
+      "enabled": true
+    }
+  ]
+}

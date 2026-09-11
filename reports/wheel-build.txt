@@ -1,0 +1,10 @@
+WARNING: The directory '/home/oai/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Processing /mnt/data/secure-chat-search-mcp
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: secure-chat-search-mcp
+  Building wheel for secure-chat-search-mcp (pyproject.toml): started
+  Building wheel for secure-chat-search-mcp (pyproject.toml): finished with status 'done'
+  Created wheel for secure-chat-search-mcp: filename=secure_chat_search_mcp-0.1.0-py3-none-any.whl size=44130 sha256=9affe280566387a059f6323c6ac8de214fd8c44dd8643c060f855a9bdc382156
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ukiyah96/wheels/e5/d8/39/b1d7157eafa057266f976c7de08c4e16b6bb90de5d229d22a1
+Successfully built secure-chat-search-mcp

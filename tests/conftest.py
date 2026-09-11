@@ -1,29 +1,37 @@
-import os
-from types import SimpleNamespace
 import pytest
-from sqlalchemy import create_engine
-from secure_chat_search.auth import Auth, DemoMemberships
-from secure_chat_search.core import Base, Database, Principal, Settings
-from secure_chat_search.demo import seed
-from secure_chat_search.search import SearchService
-
+from fastapi.testclient import TestClient
+from secure_chat_search.config import Settings
+from secure_chat_search.app import create_app
+from secure_chat_search.auth import Principal
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
-    monkeypatch.delenv("K_SERVICE", raising=False)
-    url = os.getenv("SCS_TEST_DATABASE_URL") or "sqlite:///" + str(tmp_path / "test.sqlite3")
-    if os.getenv("SCS_TEST_DATABASE_URL"):
-        # CIの使い捨て専用DB以外は破壊しない。
-        assert url.endswith("/scs_test"), "PostgreSQLテストは専用scs_test DBのみ"
-        engine = create_engine(url)
-        Base.metadata.drop_all(engine)
-        engine.dispose()
-    settings = Settings(_env_file=None, mode="demo", database_url=url, public_url="http://testserver")
-    db = Database(settings)
-    db.initialize()
-    seed(db)
-    auth = Auth(settings, DemoMemberships())
-    service = SearchService(db, auth, settings)
-    yield SimpleNamespace(db=db, auth=auth, settings=settings, service=service,
-                          alice=Principal("alice"), bob=Principal("bob"))
-    db.close()
+def app():
+    instance = create_app(Settings(database_url="sqlite:///:memory:"))
+    yield instance
+    instance.state.db.engine.dispose()
+
+@pytest.fixture
+def client(app):
+    with TestClient(app) as c:
+        yield c
+
+@pytest.fixture
+def db(app): return app.state.db
+
+@pytest.fixture
+def service(app): return app.state.service
+
+@pytest.fixture
+def aoki(): return Principal("demo", "aoki")
+
+@pytest.fixture
+def sato(): return Principal("demo", "sato")
+
+@pytest.fixture
+def auth_headers(client):
+    token = client.post("/api/demo/session", json={"subject": "aoki"}).json()["access_token"]
+    return {"Authorization": "Bearer " + token}
+
+@pytest.fixture
+def mcp_headers(auth_headers):
+    return {**auth_headers, "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18"}

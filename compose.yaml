@@ -1,0 +1,18 @@
+# 架空デモ専用。ホスト側は127.0.0.1だけで待ち受ける。
+services:
+  demo:
+    build: .
+    environment:
+      SCS_MODE: demo
+      SCS_ALLOW_DEMO_BIND: "true"
+      SCS_DATABASE_URL: sqlite:////app/data/chat-search.db
+      SCS_BASE_URL: http://127.0.0.1:8000
+      SCS_ALLOWED_HOSTS: 127.0.0.1,localhost
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - demo-data:/app/data
+    init: true
+    restart: "no"
+volumes:
+  demo-data:

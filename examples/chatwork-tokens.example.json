@@ -1,0 +1,8 @@
+{
+  "example-org": {
+    "google-sub-example": {
+      "access_token": "REPLACE_WITH_REAL_VALUE_OUTSIDE_REPOSITORY",
+      "expires_at": 0
+    }
+  }
+}

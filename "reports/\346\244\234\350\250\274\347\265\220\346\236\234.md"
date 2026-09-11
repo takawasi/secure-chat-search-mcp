@@ -1,0 +1,80 @@
+# 検証結果 — v0.1.0
+検証日：2026-09-11。対象はこの配布物のローカルPoC。GitHub公開・顧客本番の検収ではない。
+
+## 結論
+架空データで、履歴取り込み→現在権限付き検索→原文・期間取得→最新ログ処理を一巡できることを確認した。
+日本語の操作画面とMCPは、同じSearchService／Policyを使う。
+本番に必要な実データ・認証・クラウド接続は分離し、検証できたと扱わない。
+
+## 実行した検証
+
+| 検証 | 結果 | 証拠 |
+|---|---|---|
+| pytest | **124件合格、失敗0件** | [出力](pytest-output.txt)、[JUnit](junit.xml) |
+| ステートメントカバレッジ | **86.4%** | [coverage.json](coverage.json) |
+| 実HTTPサーバー | **16項目合格** | [http-check.json](http-check.json) |
+| Chromiumでの画面操作 | **12項目合格** | [browser-check.json](browser-check.json) |
+| wheelビルド | 成功 | [ビルド記録](wheel-build.txt) |
+| wheelインストール | インポート・検索・UI同梱・CLIの動作を確認 | [install-check.json](install-check.json) |
+| PostgreSQL | SQLAlchemyのDDL生成のみ確認 | tests/test_directory_and_edges.py |
+| 公開対象の簡易点検 | 最終結果は下記JSON参照 | [publication-check.json](publication-check.json) |
+
+カバレッジはpytestの親プロセスが測定した値。CLIは別プロセス試験で動作させているが、子プロセスの行カバレッジは合算していない。
+これは全経路の品質保証率ではない。時間・速度の数値はこの小規模試験であり、顧客データ量の性能指標には使わない。
+
+## 重要な合格ケース
+
+検索前のtenant／room制約、他利用者の原文IDへのアクセス拒否、利用停止・退室・ルーム無効化、外部権限取得失敗時の拒否。
+改ざんJWT、異なるissuer/audience、期限切れ、未来nbf、不正Origin/Hostを拒否。
+検索語のSQL記号・Unicode、原文内のHTML、IDなし履歴、CSV途中エラーのロールバック、再取り込みを確認。
+古い版の無視、削除後の本文消去、重複受信、最新100件を超える欠損疑い、履歴が最新取得に消されないことを確認。
+Webhookの生バイト列署名・改ざん拒否・永続化・再実行・成功後の本文除去を確認。
+EmbeddingはHTTP代替応答と固定ベクトルで、入出力契約・RRF・権限外本文を送信しないことを確認。
+実モデルでの検索精度を検証したわけではない。
+
+## ブラウザ試験の制約
+この実行環境のChromiumでは、HTTPアクセスが `ERR_BLOCKED_BY_ADMINISTRATOR` で遮断された。
+保護設定を無効化せず、実HTML/CSS/JavaScriptをChromiumで描画し、fetchだけをFastAPI TestClientへ接続する試験に分けた。
+この方式で利用者切替、原文表示、退室・復帰、新着、再取り込み、警告、幅390pxの表示、HTML非実行を確認した。
+**ブラウザ→実HTTP→アプリの通し試験は未完了**。HTTPサーバーとMCPは別のPythonクライアントから実通信で確認した。
+
+## 画面
+[営業：検索と根拠](01_検索と根拠.png)
+
+[開発：別利用者の検索](02_別利用者の検索.png)
+
+[新着と欠損警告](03_新着と欠損警告.png)
+
+[スマートフォン幅](04_スマートフォン.png)
+
+## 実行環境と再現範囲
+Python 3.13.5。FastAPI 0.128.2、Starlette 0.50.0、SQLAlchemy 2.0.50、PyJWT 2.13.0、HTTPX 0.28.1、pytest 9.0.2。
+この会話のコンテナは外部パッケージ取得のDNS解決に失敗したため、既存ランタイムを利用した。
+wheelは新しいvenvへ導入し、プロジェクトsrcを使わずに確認したが、依存ライブラリは元環境から参照している。
+完全隔離環境でのオンラインインストールを検証した結果ではない。
+
+## 未検証／今回の範囲外
+
+| 対象 | 状態・次の確認 |
+|---|---|
+| 顧客の実エクスポート | 未受領。正規化CSVへの列・日時・削除・編集変換を検証する |
+| 実Chatwork OAuth/API/Webhook | アダプターと代替HTTP応答の試験のみ。実アカウントで本人・参加・トークン失効・呼出制限を確認する |
+| 既存Google/Firestore認証 | 未受領。接続境界と手順は用意したが、接続済みではない |
+| ChatGPTの実画面 | MCPのローカルHTTP試験のみ。既存MCPへの組込または認証付き接続を確認する |
+| 実Embeddingモデル | 未接続。送信可否・費用・日本語の実質問による精度を確認する |
+| PostgreSQL/Cloud SQL | DDL生成以外は未検証。接続・性能・索引・復元を確認する |
+| Docker/Google Cloud | 設定例のみ。Dockerビルド、Cloud Run、Scheduler、IAMは未実施 |
+| GitHub Actions | 設定ファイルのみ。実行済みバッジ等は付けていない |
+| 大規模・常時運用 | レート予算、並列worker lease、マイグレーション、保持期間、監視を実環境で設計・検証する |
+| 脆弱性DB照合・外部監査 | 未実施。簡易秘密走査をセキュリティ認証と扱わない |
+
+## 再実行
+```bash
+python -m pytest -q
+python scripts/http_check.py
+python scripts/ui_check.py --asgi-bridge
+python scripts/check_publication.py
+```
+
+ブラウザ通信を許可された環境では、`ui_check.py` の `--asgi-bridge` を外し、実HTTPを経由した操作試験を行う。
+配布対象のファイルは `MANIFEST.sha256` で確認する。

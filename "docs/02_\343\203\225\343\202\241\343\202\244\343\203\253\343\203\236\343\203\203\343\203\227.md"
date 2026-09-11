@@ -1,0 +1,38 @@
+# ファイルマップ（実装前に作成）
+
+| 場所 | 責務 |
+|---|---|
+| START_HERE.md / README.md | 読む順番・起動・説明 |
+| docs/01_目的と範囲.md | 利用者価値・対象外 |
+| docs/03_実装計画.md | 工程と検収 |
+| docs/04_設計.md | データ・認証・取り込み境界 |
+| docs/05_Chatwork仕様と制限.md | 公式仕様・未確認事項 |
+| docs/06_既存PoCへの統合.md | 既存の認証とMCPに足す手順 |
+| docs/07_提案文.md | 実装済みの事実に基づく提案 |
+| docs/08_運用とセキュリティ.md | 秘密管理・失効・同期・障害 |
+| src/secure_chat_search/config.py | 環境設定と危険な設定の拒否 |
+| src/secure_chat_search/db.py | SQLAlchemyモデル・初期化 |
+| src/secure_chat_search/directory.py | 管理者CLIの利用者・承認ルーム登録 |
+| src/secure_chat_search/auth.py | JWT検証・本人・共通ACL |
+| src/secure_chat_search/search.py | ACL先行検索・期間取得・根拠 |
+| src/secure_chat_search/embeddings.py | 任意のEmbedding HTTP接続・RRF |
+| src/secure_chat_search/ingest.py | CSV・正規化・更新・スナップショット |
+| src/secure_chat_search/chatwork.py | REST API・失敗分類・署名検証 |
+| src/secure_chat_search/sync.py | 最新取得・永続Webhookキュー処理 |
+| src/secure_chat_search/mcp.py | 読取専用MCP Streamable HTTP |
+| src/secure_chat_search/app.py | REST・デモ・セキュリティヘッダー |
+| src/secure_chat_search/demo.py / cli.py | 架空データ・操作コマンド |
+| src/secure_chat_search/web/ | 日本語UI。外部CDN・追跡なし |
+| examples/ | 架空CSV・設定例・MCP要求例 |
+| tests/ | 検索・ACL・CSV・同期・MCPの再現試験 |
+| scripts/ | 起動・検証・公開前点検 |
+| infra/ | Docker/PostgreSQL・Cloud Run構成例 |
+| reports/ | テスト結果・画面・検証の限界 |
+| WORK_HANDOFF.md | ZIPから再開・公開前確認 |
+
+依存方向：API/MCP → SearchService → ACL/DB。取り込み・同期 → 共通upsert → DB。
+UIもMCPも同じ検索サービスを通し、画面だけで権限を隠す構成にしない。
+
+最終更新：v0.1.0。実装前のマップに、管理者登録・HTTP/画面試験・配布点検・CI設定を追記した。
+
+追加の配布補助：`docs/概要.html`（画面付き説明）、`scripts/http_check.py`（実HTTP）、`scripts/ui_check.py`（画面）、`scripts/install_check.py`（wheel）、`scripts/check_publication.py`（簡易点検）、`.github/workflows/tests.yml`（未実行のCI設定）。

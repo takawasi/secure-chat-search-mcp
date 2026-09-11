@@ -1,90 +1,97 @@
-"""認証と認可。検索・本文取得・期間取得の全経路で再評価する。"""
-from __future__ import annotations
-
+"""JWTで本人を確定し、検索直前に現在の権限との積集合を取得する。"""
+from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
+import time
 from typing import Protocol
-
 import jwt
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from sqlalchemy import select
+from .config import Settings
+from .db import Database, User, Room, Membership
+from .errors import AppError, UpstreamError
 
-from .core import DomainError, Membership, Principal, Room, Settings, User
-
-
-class MembershipProvider(Protocol):
-    def current_rooms(self, session, user: User) -> set[str]: ...
-
-
-class DemoMemberships:
-    def current_rooms(self, session, user):
-        return set(session.scalars(select(Membership.room_id).where(Membership.sub == user.sub)))
-
-
-class LiveMemberships:
-    def __init__(self, store):
-        self.store = store
-
-    def current_rooms(self, session, user):
-        with self.store.client_for(user.sub, user.account_id) as client:
-            if str(client.me().get("account_id")) != user.account_id:
-                raise DomainError("account_mismatch", "Chatworkアカウントの対応を確認できません。", 503)
-            return {str(room["room_id"]) for room in client.rooms() if room.get("type") == "group"}
-
+@dataclass(frozen=True)
+class Principal:
+    tenant: str
+    subject: str
 
 class Auth:
-    def __init__(self, settings: Settings, provider: MembershipProvider):
-        self.settings, self.provider = settings, provider
-        self.key = None
-        if settings.mode == "gateway":
-            try:
-                self.key = load_pem_public_key(Path(settings.jwt_public_key_file).read_bytes())
-                if not isinstance(self.key, RSAPublicKey) or self.key.key_size < 2048:
-                    raise ValueError()
-            except (ValueError, TypeError, OSError):
-                raise DomainError("jwt_key", "2048bit以上のRSA公開鍵を設定してください。") from None
+    def __init__(self, settings: Settings):
+        self.settings = settings
 
-    def authenticate(self, authorization: str | None, cookie: str | None = None) -> Principal:
-        token = None
-        if authorization:
-            scheme, _, value = authorization.partition(" ")
-            if scheme.lower() != "bearer" or not value or " " in value:
-                raise DomainError("unauthenticated", "認証情報を確認できません。", 401)
-            token = value
-        if self.settings.mode == "demo":
-            if token is None and cookie:
-                token = "demo:" + cookie
-            if token not in {"demo:alice", "demo:bob", "demo:disabled"}:
-                raise DomainError("unauthenticated", "デモ利用者を選択してください。", 401)
-            return Principal(token.split(":", 1)[1])
-        if not token:
-            raise DomainError("unauthenticated", "認証情報が必要です。", 401)
+    def issue_demo(self, subject: str) -> str:
+        if self.settings.mode != "demo":
+            raise AppError(404, "not_found", "見つかりません")
+        now = int(time.time())
+        return jwt.encode({"sub": subject, "tid": "demo", "iss": self.settings.jwt_issuer,
+                           "aud": self.settings.jwt_audience, "iat": now, "nbf": now,
+                           "exp": now + 3600}, self.settings.jwt_secret, algorithm="HS256")
+
+    def verify(self, authorization: str) -> Principal:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise AppError(401, "authentication_required", "認証が必要です")
+        s = self.settings
         try:
-            claims = jwt.decode(token, self.key, algorithms=["RS256"],
-                                issuer=self.settings.jwt_issuer, audience=self.settings.jwt_audience,
-                                options={"require": ["exp", "iat", "nbf", "sub", "aud", "iss"]})
-            if (not isinstance(claims["sub"], str) or not 1 <= len(claims["sub"]) <= 160 or
-                    not 0 < claims["exp"] - claims["iat"] <= 300):
-                raise ValueError()
-            return Principal(claims["sub"])
+            claims = jwt.decode(token, s.jwt_secret if s.mode == "demo" else s.jwt_public_key,
+                                algorithms=["HS256"] if s.mode == "demo" else ["RS256"],
+                                audience=s.jwt_audience, issuer=s.jwt_issuer,
+                                options={"require": ["exp", "iat", "nbf", "sub", "tid", "iss", "aud"]})
+            if not all(isinstance(claims[k], str) and 0 < len(claims[k]) <= 200 for k in ("sub", "tid")):
+                raise ValueError("claims")
+            return Principal(claims["tid"], claims["sub"])
         except (jwt.PyJWTError, ValueError, TypeError):
-            raise DomainError("unauthenticated", "認証情報を確認できません。", 401) from None
+            raise AppError(401, "invalid_token", "認証情報が無効または期限切れです") from None
 
-    def user(self, session, principal: Principal) -> User:
-        user = session.get(User, principal.sub)
-        if not user or not user.enabled:
-            raise DomainError("user_disabled", "このサービスの利用が許可されていません。", 403)
-        return user
+class RoomProvider(Protocol):
+    def current_group_rooms(self, principal: Principal, account_id: str) -> set[str]: ...
 
-    def allowed_rooms(self, session, principal: Principal) -> list[Room]:
-        user = self.user(session, principal)
+class FileTokenProvider:
+    """既存OAuth側が更新する秘密ファイル。更新処理をこちらで再実装しない。"""
+    def __init__(self, path: str):
+        self.path = Path(path)
+
+    def get_access_token(self, principal: Principal) -> str:
         try:
-            current = self.provider.current_rooms(session, user)
-        except DomainError:
-            raise
-        except Exception:
-            raise DomainError("permission_unavailable", "現在の閲覧権限を確認できません。再認証または管理者確認が必要です。", 503) from None
-        if not current:
-            return []
-        return list(session.scalars(select(Room).where(Room.id.in_(current), Room.approved.is_(True),
-                                                      Room.kind == "group").order_by(Room.id)))
+            if os.name != "nt" and self.path.stat().st_mode & 0o077:
+                raise ValueError("秘密ファイルは0600で管理してください")
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            item = data[principal.tenant][principal.subject]
+            if item["expires_at"] <= time.time() + 15:
+                raise ValueError("expired")
+            value = item["access_token"]
+            if not isinstance(value, str) or not value:
+                raise ValueError("empty")
+            return value
+        except (OSError, KeyError, TypeError, ValueError):
+            raise UpstreamError("chatwork_reauthentication_required") from None
+
+class Policy:
+    def __init__(self, db: Database, provider: RoomProvider | None = None):
+        self.db, self.provider = db, provider
+
+    def user(self, p: Principal):
+        with self.db.session() as s:
+            u = s.get(User, (p.tenant, p.subject))
+            if not u or not u.enabled:
+                raise AppError(403, "user_not_allowed", "このサービスの利用は許可されていません")
+            return u
+
+    def rooms(self, p: Principal) -> dict[str, Room]:
+        user = self.user(p)
+        with self.db.session() as s:
+            approved = s.scalars(select(Room).where(Room.tenant == p.tenant,
+                                  Room.kind == "group", Room.enabled.is_(True))).all()
+            if self.provider:
+                try:
+                    current = self.provider.current_group_rooms(p, user.account_id)
+                except AppError:
+                    raise
+                except Exception:
+                    raise UpstreamError("acl_check_failed") from None
+            else:
+                current = set(s.scalars(select(Membership.room_id).where(
+                    Membership.tenant == p.tenant, Membership.subject == p.subject,
+                    Membership.enabled.is_(True))).all())
+            return {r.room_id: r for r in approved if r.room_id in current}

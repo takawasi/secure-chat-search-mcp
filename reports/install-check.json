@@ -1,0 +1,9 @@
+{
+  "installed_import": true,
+  "site_packages": true,
+  "search": true,
+  "packaged_ui": true,
+  "console_entry": true,
+  "mode": "ローカルwheelを新しいvenvへ導入。依存ライブラリのみ元環境から参照し、プロジェクトsrcは参照しない。オンラインでの新規依存解決ではない。",
+  "wheel": "secure_chat_search_mcp-0.1.0-py3-none-any.whl"
+}

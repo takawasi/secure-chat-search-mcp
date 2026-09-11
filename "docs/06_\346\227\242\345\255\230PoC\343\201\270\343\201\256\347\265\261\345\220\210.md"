@@ -1,0 +1,106 @@
+# 既存PoCへの統合 — 入口と認証を維持して検索を追加する
+
+## 最初に受け取るもの
+既存コード／構成図、ID・日時構造を保った匿名化CSV、利用者・ルーム・件数の規模、実際に答えたい質問、同期遅延と削除反映の許容時間。
+本実装は実CSVを受け取る前の汎用部分である。顧客の既存物への適合は、これらを確認して検証する。
+
+## 推奨：既存MCPプロセスへSearchServiceを組み込む
+
+既存MCPがPythonであり、すでにGoogleの本人確認・Firestoreのallow-list・個人Chatwork OAuthを解決している場合は、既存の本人を `Principal(tenant, subject)` に変換して検索サービスを呼ぶ。
+利用者IDをLLMのツール引数から受け取らない。検証済みセッション／専用アクセストークンからのみ確定する。
+
+```python
+# 接続形の例。existing_* は顧客の既存コードへ置き換える境界。
+from secure_chat_search.auth import Policy, Principal
+from secure_chat_search.search import SearchService
+
+class ExistingPolicy(Policy):
+    def user(self, principal):
+        existing_allowlist.assert_enabled(principal.tenant, principal.subject)
+        return super().user(principal)
+
+# provider.current_group_rooms() は現在の本人参加ルームを返す。
+# provider失敗時は例外を出す。古いDBの参加情報へ戻さない。
+service = SearchService(db, ExistingPolicy(db, provider), settings, embedder=None)
+
+async def existing_search_tool(query: str):
+    verified = existing_auth.current_verified_user()
+    principal = Principal(verified.tenant, verified.subject)
+    # 同期関数のため、既存asyncサーバーではthreadpoolへ委譲する。
+    return await run_in_threadpool(service.search, principal, query)
+```
+
+この接続例は概念上の最小コードで、`existing_*` の実装は付属していない。
+本体の既定allow-listはDBである。**Firestore連携済みと表示しない。**
+Firestoreを権限正本にする場合は上記のようにリクエストごとに確認するか、失効遅延が要件を満たす同期方式を設計する。
+
+既存のトークン更新処理は維持する。`ChatworkClient` は `get_access_token(principal)` を持つ任意のオブジェクトを受け取るため、既存Secret Manager／OAuthストアへの接続クラスを渡せる。
+全ユーザー共通の管理者トークンで検索しない。
+
+## 別サービスにする場合：署名付きの内部連携
+
+`SCS_MODE=integration` を選び、既存の信頼するゲートウェイが専用の短命JWTを発行する。
+本サービスへは検証用公開鍵だけを置く。ChatGPT側の認証は既存MCP側に残し、そのままのGoogle IDトークンやChatworkアクセストークンをこのJWTの代わりに通さない。
+
+必須claim：`iss`, `aud`, `sub`, `tid`, `iat`, `nbf`, `exp`。アルゴリズムはRS256固定。
+Googleの本人識別には既存側で検証した不変のIDを用い、メール文字列だけから本人を決めない。
+鍵ローテーション時の複数公開鍵・JWKSは未実装。この参照形では公開鍵更新とプロセス再起動を運用で行う。
+
+`.env.example` は変数の説明であり、Pythonが自動で読み込むファイルではない。シェルや実行環境で設定する。
+
+```bash
+export SCS_MODE=integration
+export SCS_BASE_URL=https://search.example.invalid
+export SCS_JWT_ISSUER=https://gateway.example.invalid
+export SCS_JWT_AUDIENCE=secure-chat-search-mcp
+export SCS_JWT_PUBLIC_KEY_FILE=/run/secrets/gateway-public.pem
+export SCS_CHATWORK_TOKEN_FILE=/run/secrets/chatwork-tokens.json
+export SCS_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME'
+chat-search init-db
+chat-search configure examples/directory.example.json
+chat-search serve --host 0.0.0.0
+```
+
+`.invalid`、USER、PASSWORD等は説明用。実設定をリポジトリへ書かない。
+PostgreSQLには `python -m pip install -e '.[postgres]'` が必要。
+この例は実GCP配置を検証したものではない。
+
+トークンファイルの形式は `examples/chatwork-tokens.example.json`。
+既存OAuth側が、期限内のユーザー別access_tokenへ安全に更新する。PoCはrefresh_tokenを保存・更新しない。
+UNIXでは読み込み対象ファイルのモード0600を必須とする。所有者もプロセスに合わせる。
+Secret Managerのマウント仕様と両立しない場合は、権限検査を雑に外さず、既存ストア直結のTokenProviderへ置き換える。
+
+## 維持するもの／追加するもの
+
+| 既存 | 判断 |
+|---|---|
+| ChatGPT Business・既存MCP | 維持。入口とツール説明に履歴検索を追加 |
+| Google Workspace認証 | 維持。セッションから本人を確定 |
+| Firestore allow-list | 正本を維持する。DBコピーだけで即時失効を保証したことにしない |
+| 個人OAuth・Secret Manager | 維持。TokenProviderへ接続 |
+| 既存直近取得 | 検索用途と常時収集を整理し、重複やレート上限を一緒に管理 |
+| 履歴取り込み | 正規化CSV→Importer。実CSV変換は初期確認後 |
+| 最新収集 | Synchronizer.poll。収集担当・対象ルーム・間隔を合意してSchedulerから実行 |
+| 原文と根拠 | SearchService.fetch。IDなし履歴のURLからの本人ログイン導線も接続 |
+
+## 本配布物MCPの動作確認
+
+`examples/mcp-client.py` はローカルの架空デモだけに接続し、初期化・search・fetch・期間読取を実行する。
+既存MCPへの統合前でもHTTP JSON応答を確認できる。
+
+```bash
+python examples/mcp-client.py
+```
+
+本配布物はOAuth認可サーバーを持たない。URLをChatGPTへ登録するだけで本人認証まで自動完成するわけではない。
+`search`/`fetch`の出力形式は公式説明に合わせたが、実ChatGPTによるtool callは別途試験する。
+
+公式のMCP連携・search/fetch：https://developers.openai.com/api/docs/mcp
+
+MCP HTTP仕様：https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+
+## 検収シナリオ
+同じ質問を権限の違う2人で行う。原文取得も別々に試す。退室・利用停止・OAuth失効を再現する。
+過去の確定事項と最新の変更が両方見つかるかを、発注者の実質問で確認する。
+CSV重複、100件超過、同期停止、削除行、IDなし差し替え、認証失敗を試す。
+検索品質と権限検査を同じ合格項目に潰さず、別々に記録する。
