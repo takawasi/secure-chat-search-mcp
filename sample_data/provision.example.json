@@ -1,0 +1,8 @@
+{
+  "users": [
+    {"sub": "replace-with-verified-google-sub", "name": "利用者名を設定", "account_id": "123456", "enabled": false}
+  ],
+  "rooms": [
+    {"id": "123456", "name": "確認済みのグループ名を設定", "kind": "group", "approved": false}
+  ]
+}
