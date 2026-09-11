@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "secure-chat-search-mcp"
+version = "0.1.0"
+description = "閲覧権限を毎回確認する、日本語チャット履歴検索の参照実装"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.128,<1", "uvicorn>=0.34,<1", "sqlalchemy>=2.0.40,<2.1",
+  "pydantic-settings>=2.8,<3", "httpx>=0.28,<0.29", "PyJWT[crypto]>=2.10,<3",
+  "mcp>=1.30,<2", "anyio>=4.8,<5"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "playwright>=1.51,<2", "ruff>=0.11,<1"]
+postgres = ["psycopg[binary]>=3.2,<4"]
+semantic = ["fastembed>=0.7,<1"]
+
+[project.scripts]
+secure-chat-search = "secure_chat_search.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/secure_chat_search"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
