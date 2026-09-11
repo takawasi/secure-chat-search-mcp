@@ -6,6 +6,8 @@
 
 > **このリポジトリのデモは全件合成データです。** 会社・人物・会話は架空です。顧客のコード・秘密情報・Chatworkログを含みません。ChatGPT Business、Google Workspace、実Chatwork OAuth、顧客GCP環境への統合が済んだ完成品ではありません。
 
+> **重要：権限判定はAIに任せません。** 検索前に決定論的なPolicy Layerで利用者・現在参加room・会社承認roomなどのallowed scopeを確定し、AI検索は許可済み範囲の中だけで実行します。部署・役職・管理者・監査担当など企業固有の階層は、本番統合時にこのPolicy Layerへ組み込みます。
+
 ![営業の履歴検索デモ](docs/assets/demo-sales.png)
 
 [開発担当の表示](docs/assets/demo-development.png) · [スマートフォン表示](docs/assets/demo-mobile.png) · [検証記録](docs/VERIFICATION.md)

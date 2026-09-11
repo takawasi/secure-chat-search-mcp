@@ -25,6 +25,68 @@ Chatwork APIが直接返したデータと違い、こちらのDBには複数ユ
 
 `Auth.allowed_rooms` は毎回利用者の有効性を確認し、現在参加しているグループと会社の承認対象を組み合わせます。gatewayでは `/me` によるアカウント対応確認と `/rooms` による現在参加を行います。失敗したら古いキャッシュへ逃げずに停止します。同じ処理を本文取得と期間取得でも呼びます。
 
+## 権限モデル / Policy Layer
+
+このPoCの基本ACLは、次の決定論的な積集合です。
+
+```text
+有効なサービス利用者
+  ∩ 現在その利用者が参加しているChatworkのgroup room
+  ∩ 会社が承認した検索対象group room
+  = 検索前に確定する allowed scope
+```
+
+`Auth.allowed_rooms` はこのPoCにおけるPolicy Layerの入口です。検索語、LLMの推論、ツール引数の`room_id`／`user_id`、本文中の指示は、allowed scopeを広げる根拠になりません。検索・Embedding・`fetch`・期間取得は、先に決まった範囲へ限定してから実行します。権限確認に失敗した場合は、古い許可結果や検索結果へフォールバックしません。
+
+これは最終的な企業権限モデルを決め打ちしたものではありません。本番統合では、顧客側に次のような階層・ポリシーが実在するかを確認し、存在するものだけを検索前のPolicy Layerへ機械的な規則として組み込みます。
+
+| 層・属性 | 本番統合で確認すること | このPoCの状態 |
+|---|---|---|
+| `organization` | テナント境界、会社・子会社・拠点の分離方法 | 1サービス境界内の構成で、顧客組織階層は未確認 |
+| `department` / `team` | Google Workspace等の所属情報を認可へ使うか | 未実装・未確認 |
+| `role` / `user` | allow-list、役職、個人の有効／停止状態の正本 | userの有効状態と既存allow-list入口のみ実装 |
+| `room` / `membership` | 承認対象、現在参加、参加・退室の情報源 | group roomの承認と現在参加を実装 |
+| `room_type` | group、DM、My Chat等の扱い | groupのみ対象。DM・My Chatは除外 |
+| `visibility_policy` | 会社承認、部署限定、案件・保持区分などの規則 | 承認groupとの積集合まで。追加規則は未確認 |
+| `admin` / `manager` / `auditor` | 横断閲覧を許す例外、対象範囲、監査目的、承認者 | 実装済みとは扱わない |
+| membershipの開始・終了 | 参加前・退室後の履歴をどの期間まで許すか | 現在参加を確認し、参加前履歴はPoC仕様で許可。期間別ACLは未実装 |
+| 編集前 / 削除済みメッセージ | 誰が旧版・削除済み本文を見られるか、保持期限 | 編集時点は管理するが旧本文は保持しない。削除確定本文は消去し、例外閲覧は未実装 |
+
+### 取り込み時の構造化と検索時の認可を分ける
+
+取り込みは、権限判定の代わりではなく、後で判定できる機械的な記録を作る工程です。本番用の正規化データでは、少なくとも次のメタデータをメッセージと関連付けます。
+
+```text
+organization / department / team / room / room_type
+sender / timestamp / version_at / source / observed_at / deletion_state
+```
+
+このPoCの`Message`は、room、発言者アカウント、送信時刻、更新時刻、情報源、観測時点、削除状態などを持ちます。organization、部署・team・roleの連携値を顧客環境から受け取っているわけではありません。管理者exportと最新APIを混ぜる場合も、情報源・時点・安定IDの有無を残し、取り込み済みであることを閲覧許可と解釈しません。
+
+検索時は、次の順序を固定します。
+
+1. 認証済みの利用者を確定し、有効状態と既存allow-listを確認する。
+2. 利用者の組織・部署・team・role、現在membership、room metadata、visibility policyをPolicy Layerで評価する。
+3. 検索対象のroom／message範囲を`allowed scope`として確定する。例外権限を使う場合も、規則・対象・有効期間・監査主体を先に確定する。
+4. その範囲だけをSQL候補、本文取得、期間取得、Embedding入力へ渡す。
+5. AI/LLMは許可済み範囲内で質問理解、検索計画、意味検索、要約を行う。AI/LLMに権限判定や範囲拡大をさせない。
+
+したがって、構造化されたメッセージがDBに存在することと、現在の利用者がそれを読めることは別です。退室、allow-list無効化、room policy変更、削除状態の変化は、次の取得時にPolicy Layerで再評価します。参加期間単位、管理者・監査担当の横断閲覧、編集前・削除済み本文の例外閲覧は、顧客の実ポリシーを確認した後に同じ入口へ拡張します。
+
+### AI処理との責務分離
+
+この構成は「AIが権限を判断してから隠す」方式ではありません。サーバー側の決定論的Policy Layerが先に検索空間を限定し、その後段にだけAI処理を置きます。
+
+```text
+認証済み本人
+  → Policy Layer（階層・membership・room policy・例外規則）
+  → allowed scope
+  → SQL / fetch / timeline / Embedding
+  → 必要ならAIの質問理解・検索計画・要約
+```
+
+AIの出力、検索語、本文中の命令、LLMが提案したroom／user指定は、Policy Layerの入力や例外許可に戻しません。これにより、AIモデルを変更しても「どのデータを候補にしてよいか」の責務と検査対象を固定できます。
+
 ## 履歴と最新を無理に同一視しない
 
 `Message.external_id` がある発言はChatwork IDで更新します。IDのない履歴には、取り込み元と行位置から内部IDを付けます。この内部IDをChatwork上のIDと偽りません。単純な「日時＋本文」ハッシュで別投稿を消すこともしません。
