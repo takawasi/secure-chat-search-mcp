@@ -1,0 +1,247 @@
+name: 公開PoCの検証・証跡
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: 回帰テスト (${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: scs_test
+          POSTGRES_PASSWORD: synthetic-ci-password
+          POSTGRES_DB: scs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scs_test -d scs_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python scripts/finalize_source.py
+      - run: python -m pip install -e '.[dev,postgres]'
+      - name: 静的確認
+        run: |
+          python -m compileall -q src tests scripts
+          python -m ruff check src tests scripts
+      - name: 回帰テスト
+        env:
+          SCS_TEST_DATABASE_URL: ${{ matrix.backend == 'postgres' && 'postgresql+psycopg://scs_test:synthetic-ci-password@127.0.0.1:5432/scs_test' || '' }}
+        run: python -m pytest -q --junitxml=.verification/junit.xml
+      - if: always()
+        run: python -m pip freeze > .verification/dependencies.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tests-${{ matrix.backend }}
+          path: .verification/
+          include-hidden-files: true
+          retention-days: 30
+
+  end_to_end:
+    name: MCP・ブラウザ実動作
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python scripts/finalize_source.py
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m playwright install --with-deps chromium
+      - name: 実HTTPサーバーを起動
+        run: |
+          secure-chat-search serve > .verification/server.log 2>&1 &
+          echo $! > .verification/server.pid
+          python - <<'PY'
+          import time, urllib.request
+          for _ in range(60):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2) as response:
+                      assert response.status == 200
+                  break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise RuntimeError('サーバーの起動を確認できません。')
+          PY
+      - run: python scripts/mcp_smoke.py
+      - run: python scripts/browser_smoke.py
+      - if: always()
+        run: if [ -f .verification/server.pid ]; then kill "$(cat .verification/server.pid)" || true; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: end-to-end
+          path: |
+            .verification/
+            docs/assets/
+          include-hidden-files: true
+          retention-days: 30
+
+  semantic:
+    name: 実ローカルモデルの意味検索
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python scripts/finalize_source.py
+      - run: python -m pip install -e '.[semantic]'
+      - uses: actions/cache@v4
+        with:
+          path: .data/models
+          key: multilingual-minilm-l12-fastembed-${{ runner.os }}-v1
+      - run: python scripts/semantic_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semantic
+          path: .verification/
+          include-hidden-files: true
+          retention-days: 30
+
+  container:
+    name: Docker・配布パッケージ
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/finalize_source.py
+      - name: 現行説明を配布パッケージに含める
+        run: cp README.ja.md README.md
+      - run: python -m pip install build && python -m build --wheel
+      - run: docker build -t secure-chat-search-mcp:ci .
+      - name: 非root起動とHTTP検索を確認
+        run: |
+          docker run -d --name scs-ci -p 127.0.0.1:8000:8000 secure-chat-search-mcp:ci
+          python - <<'PY'
+          import json, subprocess, time, urllib.request
+          from pathlib import Path
+          for _ in range(60):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2) as response:
+                      assert response.status == 200
+                  break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise RuntimeError('Dockerの起動を確認できません。')
+          uid=subprocess.check_output(['docker','exec','scs-ci','id','-u'],text=True).strip()
+          assert uid != '0'
+          request=urllib.request.Request('http://127.0.0.1:8000/api/search',
+              data=json.dumps({'query':'納期'}).encode(),
+              headers={'Authorization':'Bearer demo:alice','Content-Type':'application/json'})
+          with urllib.request.urlopen(request) as response:
+              result=json.load(response)
+          assert len(result['results'])==4
+          Path('.verification/container.json').write_text(json.dumps({'status':'passed','uid':uid,'search_results':4,'data':'synthetic only'},ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+      - if: always()
+        run: |
+          docker logs scs-ci > .verification/container.log 2>&1 || true
+          docker rm -f scs-ci || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container
+          path: |
+            .verification/
+            dist/
+          include-hidden-files: true
+          retention-days: 30
+
+  publish_evidence:
+    name: 実行結果と画面を記録
+    needs: [tests, end_to_end, semantic, container]
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/finalize_source.py
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: artifacts
+      - run: python -m pip install -e .
+      - run: secure-chat-search sample-export --output sample_data
+      - name: 実結果から検証記録を作成
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/publish_report.py
+      - name: 同じソース・画面・記録をmainへ保存
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo 'mainが更新されたため上書きしません。成果物はArtifactsから確認できます。'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src scripts tests README.md README.ja.md docs sample_data
+          if ! git diff --cached --quiet; then
+            git commit -m 'docs: 実行結果・画面・検証済みソースを記録 [skip ci]'
+            git push origin HEAD:main
+          fi
+      - name: 公開ソースと証跡をZIPへまとめる
+        if: always()
+        run: |
+          python - <<'PY'
+          import subprocess, zipfile
+          from pathlib import Path
+          names=set(subprocess.check_output(['git','ls-files'],text=True).splitlines())
+          for directory in ['docs/assets','docs/evidence','sample_data']:
+              names.update(str(p) for p in Path(directory).rglob('*') if p.is_file())
+          with zipfile.ZipFile('secure-chat-search-mcp-v0.1.0.zip','w',zipfile.ZIP_DEFLATED) as archive:
+              for name in sorted(names):
+                  path=Path(name)
+                  if path.is_file() and '.data/' not in name and '.secrets/' not in name:
+                      archive.write(path,'secure-chat-search-mcp/'+name)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: secure-chat-search-mcp-v0.1.0
+          path: secure-chat-search-mcp-v0.1.0.zip
+          retention-days: 90
