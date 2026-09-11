@@ -104,6 +104,7 @@ python scripts/mcp_smoke.py
 ```bash
 python -m pytest -q
 python -m compileall -q src
+python scripts/publication_check.py
 python -m playwright install chromium
 # 別ターミナルで serve を起動した状態で実行
 python scripts/mcp_smoke.py

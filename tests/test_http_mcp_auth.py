@@ -135,6 +135,24 @@ def test_http_auth_headers_and_no_spoofing(env):
         assert client.get('/api/session').status_code==403
 
 
+def test_http_fetch_record_and_period_share_acl(env):
+    app=create_app(env.settings,db=env.db)
+    with TestClient(app) as client:
+        headers={'Authorization':'Bearer demo:alice'}
+        found=client.post('/api/search',json={'query':'納期'},headers=headers)
+        assert found.status_code==200
+        key=found.json()['results'][0]['id']
+        assert client.get(f'/api/messages/{key}',headers=headers).status_code==200
+        assert client.get(f'/records/{key}',headers=headers).status_code==200
+        assert client.get('/api/period?room_id=1001&since=0&until=2000000000',headers=headers).status_code==200
+
+        change_membership(env.db,'alice',False)
+        assert client.post('/api/search',json={'query':'納期'},headers=headers).json()['results']==[]
+        assert client.get(f'/api/messages/{key}',headers=headers).status_code==404
+        assert client.get(f'/records/{key}',headers=headers).status_code==404
+        assert client.get('/api/period?room_id=1001&since=0&until=2000000000',headers=headers).status_code==404
+
+
 def test_body_limit_and_duplicate_auth(env):
     settings=env.settings.model_copy(update={'max_request_bytes':1024})
     with TestClient(create_app(settings,db=env.db)) as client:
@@ -176,5 +194,7 @@ async def test_official_mcp_client_round_trip_and_revocation(env):
                     change_membership(env.db,'alice',False)
                     denied=await session.call_tool('fetch',{'id':key})
                     assert denied.isError and denied.structuredContent['error']=='not_found'
+                    denied_period=await session.call_tool('read_room_period',{'room_id':'1001','since':'2023-01-01T00:00:00+09:00','until':'2026-12-31T23:59:59+09:00'})
+                    assert denied_period.isError and denied_period.structuredContent['error']=='not_found'
                     after=await session.call_tool('search',{'query':'納期'})
                     assert after.structuredContent['results']==[]

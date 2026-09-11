@@ -31,6 +31,7 @@
 | `scripts/browser_smoke.py` | 実ブラウザの操作・権限差・退室の確認と撮影 |
 | `scripts/mcp_smoke.py` | 実HTTPによる公式MCPクライアントの確認 |
 | `scripts/semantic_smoke.py` | 実モデルを取得して意味検索・権限・再索引を確認 |
+| `scripts/publication_check.py` | Library版から採用した、秘密らしい文字列・禁止ファイル・相対リンクの公開前簡易点検 |
 | `scripts/release_prepare.py` | 初版公開時のソース整合処理。適用内容は小さく明示し、結果を通常のソースへ保存 |
 | `scripts/publish_report.py` | CIの実結果から検証記録を生成。未実行・失敗を成功扱いしない |
 | `.github/workflows/ci.yml` | SQLite／PostgreSQL、MCP、ブラウザ、実モデル、Dockerの検証 |
@@ -43,4 +44,4 @@
 
 ## リポジトリへ入れないもの
 
-`.env`、実OAuthトークン、RSA秘密鍵、顧客CSV、実DB、モデルの重み、顧客ログ、顧客名入り画像。これらは`.data/`や秘密専用マウントに分離し、公開コミットへ追加しません。
+`.env`、実OAuthトークン、RSA秘密鍵、顧客CSV、実DB、モデルの重み、顧客ログ、顧客名入り画像。これらは`.data/`や秘密専用マウントに分離し、公開コミットへ追加しません。公開前は `scripts/publication_check.py` を実行しますが、目視・依存ライセンス・脆弱性確認の代わりにはなりません。

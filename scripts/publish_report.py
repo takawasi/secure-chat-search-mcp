@@ -25,6 +25,7 @@ for key,label in labels.items():
     lines.append(f'| {label} | {result} |')
 all_passed=bool(needs) and all(needs.get(key,{}).get('result')=='success' for key in labels)
 lines += ['', '**公開PoCの自動検証はすべて成功しました。**' if all_passed else '**失敗・中断・未実施の項目が残っています。完了とは扱っていません。**','', '## 回帰テストの実測','']
+lines += ['公開前点検は各回帰テストジョブの静的確認で実行し、秘密らしい文字列・禁止ファイル・壊れた相対リンクの指摘がないことを確認します。これは目視確認・依存ライセンス・脆弱性確認の代わりではありません。', '', '検索・`fetch`・保護された原文表示・期間取得・MCPの期間取得は、同じ現在ACLを通す回帰を含みます。退室後の既知IDを別入口から再取得できないことを確認します。']
 for backend in ('sqlite','postgres'):
     root=ARTIFACTS/f'tests-{backend}'
     junit=next(iter(root.rglob('junit.xml')),None) if root.exists() else None

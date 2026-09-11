@@ -1,5 +1,20 @@
 # 既存PoCへ追加する構成
 
+## 今回の比較と採否：`main` を公開正本にする
+
+`import/library-v0.1.0` は、保存版ZIPの比較用スナップショットとして確認しました。PR #1 は競合するためマージせず、次の単位で採否を分けています。
+
+| Library版の内容 | 判断 | 理由・最終位置 |
+|---|---|---|
+| `db.py` / `ingest.py` / 独自 `mcp.py` / `web/` | 不採用 | `main` の `core.py`・`ingestion.py`・公式MCP SDK・`static/`と別のDB/API/UI契約を持ち、置換すると既存の検証経路を壊すため |
+| 別テナントDBモデルと関連語検索 | 不採用 | この公開版は1サービス境界内の既存Google `sub`／allow-listを引き継ぐ構成。既存認証境界を変える設計変更は顧客統合時に別途判断するため |
+| `check_publication.py` の公開前点検 | 採用・適応 | `scripts/publication_check.py` として、`main` の `docs/evidence` と `sample_data`を公開対象として検査し、生成物`.verification`だけを除外 |
+| Library版のHTTP／UI検証で確認したACL観点 | 採用・回帰化 | `tests/test_http_mcp_auth.py` で検索・`fetch`・`/records`・期間取得・MCP期間取得を退室後に再確認 |
+| 番号付き `docs/` と `reports/` の画面・検証記録 | 不採用・再構成 | 展開物は引用符を含む壊れたパスで、`main` の日本語資料・`docs/assets`・`docs/evidence`と重複するため。主張は実行した証跡だけへ再配置 |
+| Library版のサンプルCSV・Docker・起動資料 | 不採用・照合のみ | `main` のデモデータ、`sample_data/`、Docker/CIが同じ目的を満たし、別の利用者・API契約を混在させないため |
+
+この判断により、Library版をそのままマージせず、良い検証観点だけを現行実装へ取り込んでいます。実装の共通ACLは `Auth.allowed_rooms()` から `SearchService.search()`、`fetch()`、`period()`、保護された `/records/{key}`、公式MCPツールまで同じ認可結果を利用します。
+
 ## 最初に残すもの
 
 ChatGPT Business、既存MCP、Google Workspace本人確認、ユーザー別Chatwork OAuth、Firestore allow-list、既存Secret Managerを原則残します。このリポジトリの目的は、それらの作り直しではなく、履歴の取得・保存・検索を追加することです。
