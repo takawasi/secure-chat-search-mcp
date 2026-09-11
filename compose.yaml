@@ -1,0 +1,18 @@
+services:
+  search:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      SCS_MODE: demo
+      SCS_DATABASE_URL: sqlite:////app/.data/demo.sqlite3
+      SCS_PUBLIC_URL: http://127.0.0.1:8000
+      SCS_ALLOWED_HOSTS: 127.0.0.1,localhost
+    volumes:
+      - demo-data:/app/.data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  demo-data:
