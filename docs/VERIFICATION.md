@@ -1,13 +1,104 @@
 # 検証記録
 
-現在のコミットに対する実行結果は、GitHub Actionsの「公開PoCの検証・証跡」で生成します。
+検証元コミット：`31a9a076f8caaf34da3a33b9c6a70ae8c0296055`
+実行記録：[GitHub Actions](https://github.com/takawasi/secure-chat-search-mcp/actions/runs/34564892990)
 
-**この文書の初期状態は結果待ちであり、テスト成功を表すものではありません。** 完了した実行では、対象コミット、ソース指紋、各検証の成否、テスト件数、ブラウザ画像、意味検索の実モデル名を記録します。失敗・中断・未実施を成功へ読み替えません。
+結果は合成データによる参照実装の検証です。顧客環境での統合検収・本番安全性の保証ではありません。
 
-## 検証する項目
+| 検証 | 実行結果 |
+|---|---|
+| SQLite／PostgreSQL 回帰テスト | success |
+| 実HTTP MCP＋Chromium画面操作 | success |
+| 実Embeddingモデルの意味検索 | success |
+| Dockerの非root起動 | success |
 
-SQLite／PostgreSQLの回帰テスト、JWTと認可、公式MCPクライアントの往復、実HTTPの画面操作、実ローカルEmbedding、Dockerの非root起動を対象にします。すべて架空のデータを使用します。
+**公開PoCの自動検証はすべて成功しました。**
 
-## この公開版で検証していないもの
+## 回帰テストの実測
 
-顧客の実エクスポート形式、Google WorkspaceとChatworkの実アカウント対応、ChatGPT Businessへの登録、実Chatwork OAuthの更新、Firestore・Secret Managerの本番接続、Cloud Runへの実デプロイ、大規模負荷、第三者セキュリティ監査、削除反映の本番運用です。公開デモの成功でこれらを実施済みとはしません。
+- sqlite: 86件、失敗0、エラー0、スキップ0。
+- postgres: 86件、失敗0、エラー0、スキップ0。
+
+## 検証したソース
+
+コード指紋（SHA-256）：`1361c7738508103ff88828f528d6e25b68fc65b76e5eb4d2ecefa893978158e4`
+各ジョブとの一致：確認済み。
+初版の分割追加を整合させた後の通常ソースを検証しています。公開版にも同じソースを保存し、起動時の動的な書き換えは行いません。
+
+## browser-verification.json
+
+```json
+{
+  "status": "passed",
+  "transport": "real HTTP + Chromium",
+  "checks": [
+    "営業の過去・最新検索",
+    "開発予算の権限差",
+    "利用者切替時の旧本文消去",
+    "退室後の直接取得拒否",
+    "再参加",
+    "最新ログ追加",
+    "初期化",
+    "390px表示"
+  ],
+  "data": "synthetic only"
+}
+```
+
+## mcp.json
+
+```json
+{
+  "status": "passed",
+  "transport": "real HTTP + official MCP ClientSession",
+  "tools": [
+    "fetch",
+    "read_room_period",
+    "search"
+  ],
+  "data": "synthetic only"
+}
+```
+
+## semantic.json
+
+```json
+{
+  "status": "passed",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "dimensions": 384,
+  "indexed": 10,
+  "query": "納品する日を後ろにずらす相談",
+  "top_results": [
+    "社内文書を参照する際は根拠と更新日を確認してください。",
+    "星野商事との初回相談です。希望納期は6月30日です。",
+    "支払条件は月末締め、翌月末払いです。"
+  ],
+  "scope": "合成10発言の接続・権限・索引確認。顧客データでの精度評価や大規模ベンチマークではない。"
+}
+```
+
+## container.json
+
+```json
+{
+  "status": "passed",
+  "uid": "10001",
+  "search_results": 4,
+  "data": "synthetic only"
+}
+```
+
+## 実際の画面
+
+[営業：過去と最新の経緯](assets/demo-sales.png)
+[開発：利用者による権限差](assets/demo-development.png)
+[モバイル表示](assets/demo-mobile.png)
+
+## 未実施：顧客環境への統合
+
+実Chatwork OAuth、管理者エクスポート実形式、Google Workspace本人確認、Firestore／Secret Manager実接続、ChatGPT Businessへの登録、Cloud Run実デプロイは未実施です。実データの検索精度・負荷・保持削除・運用監視・第三者監査も別途検収が必要です。
+
+## 再現と配布
+
+READMEの手順でローカル起動できます。テスト・実モデル・画面操作はscriptsとtestsに同梱しています。実行時のソース、検証記録、画面を含むZIPはこのActions実行のArtifactsに保存します。モデル重み、実DB、秘密情報は含みません。

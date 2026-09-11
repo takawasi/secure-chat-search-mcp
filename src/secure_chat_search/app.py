@@ -111,6 +111,8 @@ class DemoMembership(BaseModel):
 
 def create_app(settings: Settings | None = None, db=None, provider=None, embedder=None):
     settings = settings or Settings()
+    if settings.mode == "embedded":
+        raise DomainError("embedded_only", "embeddedは既存MCP内のライブラリ専用です。HTTP起動にはgatewayを使用してください。")
     db = db or Database(settings)
     db.initialize()
     if settings.mode == "demo":
@@ -196,7 +198,7 @@ def create_app(settings: Settings | None = None, db=None, provider=None, embedde
 
     @app.post("/webhooks/chatwork")
     async def webhook(request: Request):
-        if not settings.webhook_token:
+        if settings.mode != "gateway" or not settings.webhook_token:
             raise DomainError("not_found", "この操作は利用できません。", 404)
         raw = bytearray()
         async for piece in request.stream():

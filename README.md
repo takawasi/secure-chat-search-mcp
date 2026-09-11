@@ -1,75 +1,125 @@
-# 権限を守るチャット履歴検索 / secure-chat-search-mcp
+# Secure Chat Search MCP
 
-社員が閲覧できるグループチャットだけを対象に、過去の経緯と最近の発言を根拠付きで探すための、公開・評価用リファレンス実装です。
+**社員が閲覧してよい過去のチャットを、最新の発言とつなげて根拠付きで検索する参照実装です。**
 
-**この最初のコミットは説明と計画です。以下の機能は実装予定であり、実装・検証済みとはまだ主張していません。** 実装後に検証結果を反映します。顧客のコード、会話、認証情報は含めません。
+既存のChatGPT／MCPの入口を捨てず、背後へ履歴取り込みと権限制御付き検索を追加するための公開PoCです。説明・画面・エラーメッセージは日本語を基本にしています。
 
-## 利用者に届けるもの
+> **このリポジトリのデモは全件合成データです。** 会社・人物・会話は架空です。顧客のコード・秘密情報・Chatworkログを含みません。ChatGPT Business、Google Workspace、実Chatwork OAuth、顧客GCP環境への統合が済んだ完成品ではありません。
 
-「星野商事との納期変更は、いつ、なぜ決まった？」という質問について、許可されたルーム内の過去・最新メッセージを検索し、発言者・時刻・根拠を確認できるようにします。ChatGPT側の既存MCP・本人確認は捨てず、検索部分を追加する構成です。
+![営業の履歴検索デモ](docs/assets/demo-sales.png)
 
-公開デモでは架空の日本語データを使います。担当者を切り替え、同じ検索でも見えるルームが変わること、退室すると本文取得も拒否されることを確認できます。デモの本人切り替えは本番認証ではありません。
+[開発担当の表示](docs/assets/demo-development.png) · [スマートフォン表示](docs/assets/demo-mobile.png) · [検証記録](docs/VERIFICATION.md)
 
-## 実装範囲と境界
+## 最初に見るもの
 
-- 実装するもの：履歴CSV取り込み、ID付き最新データ同期、共通認可、日本語検索、MCP search/fetchと期間取得、日本語の評価画面、再現可能な自動テスト、既存PoCへの接続ガイド。
-- 認証情報不要で動く評価構成を用意し、PostgreSQLと実Chatwork APIに接続できる境界を分離します。意味検索は実際のローカル多言語モデルを使う任意構成とし、未導入時は文字列検索であることを表示します。
-- 相手のGoogle Workspace／Chatwork OAuth／Firestore構成への組み込み、相手の現行CSVでの検証、実GCPへの配備・負荷試験は、相手の環境が必要です。公開実装だけで完了とはしません。
-- Chatworkの最大100件制限やWebhookの再送なしを無視して、完全同期を保証しません。同期時点と欠損疑いを可視化します。
-- 顧客固有のコード・実データ・秘密情報は公開しません。公開と利用許諾は別であり、包括的なOSSライセンスはこの時点では付与していません。
+| 目的 | 入口 |
+|---|---|
+| 動かして評価する | このREADMEの「起動」と「3つの確認」 |
+| 何を追加する提案か | [構成と統合方針](docs/INTEGRATION.md)・[提出用の提案概要](docs/PROPOSAL.md) |
+| Chatwork固有の制約 | [取得・同期・削除の扱い](docs/CHATWORK.md) |
+| 実装場所を探す | [ファイルマップ](docs/FILEMAP.md) |
+| 検証の実行結果と限界 | [検証記録](docs/VERIFICATION.md)・GitHub Actions |
+| 引き継いで開発する | [実装計画](docs/PLAN.md)・[設計](docs/ARCHITECTURE.md)・[運用](docs/OPERATIONS.md) |
 
-## 予定ファイルマップ
+## 起動：APIキー不要
 
-```text
-README.md                     入口・起動・検証済み範囲
-AGENTS.md                     引き継ぎ方針と完了条件
-docs/
-  PLAN.md                     実装計画・現在地・完了記録
-  FILEMAP.md                  ファイルの責務と読む順番
-  ARCHITECTURE.md             構成・データ経路・認可
-  CHATWORK.md                 公式仕様・取得限界・照合方針
-  INTEGRATION.md              既存PoCへの追加手順
-  SECURITY.md                 脅威・防御・保証しない範囲
-  DEMO.md                     評価者向け操作シナリオ
-  PROPOSAL.md                 提案時に使える日本語説明
-  VERIFICATION.md             実行した検査と未検証事項
-  LESSONS.md                  設計判断・失敗知識・更新条件
-src/secure_chat_search/
-  config.py                   明示的なデモ／統合設定
-  models.py                   DBモデル
-  database.py                 DB初期化・接続
-  auth.py                     本人確認とルーム認可
-  ingestion.py                CSV正規化・再取り込み
-  chatwork.py                 実APIクライアント
-  sync.py                     更新取り込み・欠損検出
-  search.py                   ACL付き検索・本文・期間取得
-  embeddings.py               任意のローカル意味検索
-  mcp_server.py               公式SDKによるMCPツール
-  app.py                      HTTP APIと日本語デモ
-  cli.py                      起動・取り込み・同期コマンド
-  static/                     日本語デモの画面
-sample_data/                  架空データと取り込み設定
-scripts/                      再現用スモークテスト
-infra/                        GCP構成例・導入手順
-tests/                        認可・取り込み・検索・MCPの検証
-.github/workflows/            CI
-Dockerfile / compose.yaml     コンテナ起動
-pyproject.toml / uv.lock       依存関係と再現性
+Python 3.11以上を使用します。CIの基準環境はPython 3.12です。
+
+```bash
+git clone https://github.com/takawasi/secure-chat-search-mcp.git
+cd secure-chat-search-mcp
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+secure-chat-search serve
 ```
 
-## 実装計画
+ブラウザで **http://127.0.0.1:8000** を開きます。初回にローカルSQLiteへ合成データを作成します。外部AIへの送信やAPI課金は行いません。Windows PowerShellの仮想環境有効化は `.venv\Scripts\Activate.ps1`、依存導入は `python -m pip install -e ".[dev]"` です。
 
-1. **目的・境界・ファイルマップを先行記録**（このコミット）。公式資料と現在のSDKを確認する。
-2. **中核を実装**。保存、CSV取り込み、権限判定、検索・本文取得、同期を順に接続する。
-3. **利用経路を完成**。日本語デモ、MCP、CLI、実Chatwork接続境界、PostgreSQL／GCP構成を追加する。
-4. **異常系を検証**。別人・退室・DM・My Chat・認証失効・SQL入力・重複・古い更新・削除・100件超過疑いをテストする。
-5. **実物で確認**。ブラウザの操作、MCPクライアント接続、可能なDB構成を実行し、結果を記録する。
-6. **検収・公開**。READMEを実装済み内容に更新し、検証結果・未検証の外部接続・提案文・引き継ぎ書を残す。
+Dockerでは次の操作で起動できます。公開ポートはホストのループバックへ限定しています。
 
-## 完了条件
+```bash
+docker compose up --build
+```
 
-- 初見の評価者が日本語の説明に沿って起動・操作できる。
-- 検索と本文取得が同じ認可を通り、許可外情報を取得しない。
-- 模擬接続と実接続、文字列検索と意味検索、実行済みと未検証を混同しない。
-- テストを実行し、結果を証拠付きで記録する。
-- 秘密情報と顧客情報を含めず、このリポジトリへコードと説明を保存する。
+**デモ認証は公開された架空の利用者を切り替える機能です。実データの保護には使えません。** 実データには別DBと`gateway`（独立HTTP）または`embedded`（既存MCP内）を使います。Cloud Run上のデモモードは起動時に拒否します。
+
+## 3つの確認
+
+**1．過去と最新をつなぐ。** 佐藤（営業）で「納期」を検索すると、2023年の希望・変更案・合意と、2026年の別案件が出ます。発言を開き、日時・発言者・前後の会話を確認します。画面は検索の検証用であり、AI回答生成を装った定型文は表示しません。
+
+**2．人によって見える内容が違う。** 佐藤で「予算」を検索しても、開発内部の予算は出ません。鈴木（開発）へ切り替えると表示されます。利用者変更時には前の人の本文表示を消します。
+
+**3．一度見つかったIDでも、退室後には取得できない。** 佐藤で「納期」の本文を開き、「担当ルームから退室」→「直前の本文を再取得」を押します。新しい検索だけでなく、本文の再取得も拒否します。再参加・最新ログ追加・初期化も画面から試せます。変更されるのは合成データだけです。
+
+## 実装した範囲
+
+| 項目 | この公開版 |
+|---|---|
+| 過去ログ | 正規化CSV＋対象期間マニフェストを全件検証後に一括反映。実Chatwork CSVの最終マッピングは実サンプルで確定 |
+| 重複・編集・削除 | 安定IDの更新、IDなし履歴のスナップショット入替、一意な重複の照合、明示削除時の本文・ベクトル消去 |
+| 最新同期 | 読取専用Chatwork APIアダプター、最新100件の重複取得、重複除去、欠損疑いの記録 |
+| Webhook | 署名検証→DB受信箱へ保存→HTTP 200。処理は別コマンド。再送・削除通知があるとは仮定しない |
+| 権限制御 | 利用者allow-list、現在参加ルーム、会社が承認したグループの積集合。検索・本文・期間取得のすべてで再確認 |
+| 日本語文字列検索 | NFKC正規化、部分一致、複数語AND、ルーム・日時・発言者絞り込み。SQLはバインド変数を使用 |
+| 意味検索 | 任意導入の実ローカル多言語Embedding、コサイン類似度、キーワードとのRRF併用。疑似ベクトルへの代替なし |
+| MCP | 公式Python SDKのStreamable HTTP。`search`・`fetch`・`read_room_period` |
+| DB | SQLAlchemyでSQLite／PostgreSQLに対応。専用`pgvector`／`pg_bigm`索引はこの版では未使用 |
+| 検証 | 回帰テスト、公式MCPクライアント往復、実HTTPブラウザ操作、PostgreSQL、実Embeddingモデル、DockerのCI |
+
+## 意味検索を有効にする
+
+既定は軽量なキーワード検索です。意味検索は、**実際のモデルを導入して索引を作る操作を明示的に行った場合だけ**使用できます。
+
+```bash
+python -m pip install -e '.[semantic]'
+secure-chat-search init
+export SCS_SEMANTIC_ENABLED=true
+secure-chat-search index
+secure-chat-search serve
+```
+
+PowerShellでは `export` の代わりに `$env:SCS_SEMANTIC_ENABLED="true"` を使います。初回は公開モデルを取得するため外部通信とディスク容量が必要です。取得後のEmbeddingはローカル処理です。モデルは `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`。モデル自体の利用条件も確認してください。
+
+索引は本文更新時に無効化されます。同期後には`index`を再実行します。未索引件数は応答に表示し、黙って意味検索済みとして扱いません。小規模PoCの厳密な全件比較のため、意味検索対象は既定5,000発言まで。超えたら期間・ルームを絞ります。大規模運用では日本語索引・ベクトル索引・分割方法を別途設計します。
+
+## MCP接続
+
+起動したサーバーのMCP入口は **`http://127.0.0.1:8000/mcp/`** です。デモ利用者のBearerは`demo:alice`と`demo:bob`。これは秘密ではなく、合成データ専用の公開識別子です。
+
+| ツール | 用途 |
+|---|---|
+| `search` | 関連する発言を探す。権限条件を付けて検索する |
+| `fetch` | 検索結果IDの本文と同じルームの前後文脈を取得。改めて認可する |
+| `read_room_period` | 指定期間を時系列・ページ単位で読む。上位検索結果を期間全体と取り違えない |
+
+```bash
+python scripts/mcp_smoke.py
+```
+
+**ChatGPTへURLを登録するだけで顧客OAuthまで完成するものではありません。** 既存MCPに検索部品を組み込む方法を第一候補とし、別サービスにする場合は専用audienceの短命JWTを既存認証ゲートウェイから発行します。詳細は[統合手順](docs/INTEGRATION.md)に記載しています。
+
+## テスト
+
+```bash
+python -m pytest -q
+python -m compileall -q src
+python -m playwright install chromium
+# 別ターミナルで serve を起動した状態で実行
+python scripts/mcp_smoke.py
+python scripts/browser_smoke.py
+# モデル取得を含む任意の実モデル検証
+python scripts/semantic_smoke.py
+```
+
+CIは実行結果・スクリーンショット・検証時のソースをArtifactsに残します。実行した検証と未実施の外部統合は[検証記録](docs/VERIFICATION.md)で分離します。CI実行に依存する公開証跡は、Actionsの対象コミットも合わせて確認してください。
+
+## 「安全」「完全」の境界
+
+この版はセキュリティ認証を受けた製品ではありません。現在の参加権限を確認してから新しく取り出す情報を制限しますが、**すでにChatGPTへ渡った文章の回収は保証しません**。また、過去ログの全件取得、削除の即時反映、添付ファイル本文検索、自動の管理者エクスポート取得、OAuth更新、本番監視・バックアップ運用の完成は保証しません。
+
+本番導入時には、実CSVのIDと編集削除表現、対象規模、会社の保持方針、同期遅延、Google本人確認とChatworkアカウントの対応、既存allow-listの反映を検証します。[Chatworkの制約](docs/CHATWORK.md)・[セキュリティ境界](docs/SECURITY.md)を参照してください。
+
+## 公開とライセンス
+
+公開リポジトリであることと、無制限の再利用許諾は同じではありません。作者の指定なしにMIT等を付与していません。[ライセンス方針](LICENSE_POLICY.md)と、利用する依存ライブラリ・モデルの個別条件を確認してください。

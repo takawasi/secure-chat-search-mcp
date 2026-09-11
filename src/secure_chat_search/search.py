@@ -20,7 +20,7 @@ class SearchService:
                  "sync_error": r.sync_error} for r in rooms]
 
     def _document(self, message, rooms, snippet=False):
-        if self.settings.mode == "gateway" and message.external_id:
+        if self.settings.mode in {"gateway", "embedded"} and message.external_id:
             url = f"https://www.chatwork.com/#!rid{message.room_id}-{message.external_id}"
         else:
             url = f"{self.settings.public_url}/records/{quote(message.id, safe='')}"

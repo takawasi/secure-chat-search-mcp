@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_configuration(self):
         import os
-        if self.mode not in {"demo", "gateway"}:
-            raise ValueError("SCS_MODE は demo または gateway です。")
+        if self.mode not in {"demo", "gateway", "embedded"}:
+            raise ValueError("SCS_MODE は demo、gateway、embedded のいずれかです。")
         url = urlsplit(self.public_url)
         if (url.scheme not in {"http", "https"} or not url.hostname or url.username or
                 url.password or url.path not in {"", "/"} or url.query or url.fragment):

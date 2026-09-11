@@ -67,7 +67,7 @@ def main():
             return
         db = Database(settings)
         db.initialize()
-        if args.command in {"configure", "import-csv", "sync"} and settings.mode != "gateway":
+        if args.command in {"configure", "import-csv", "sync"} and settings.mode not in {"gateway", "embedded"}:
             raise DomainError("gateway_required", "実データ操作にはgatewayモードと専用DBを使用してください。")
         if args.command == "init":
             if settings.mode == "demo":

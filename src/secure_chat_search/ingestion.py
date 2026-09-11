@@ -40,7 +40,7 @@ def references(body: str) -> list:
 
 def upsert(session, item: Incoming, observed_at: int, source: str, internal_id: str | None = None):
     key = internal_id or f"cw:{item.room_id}:{item.external_id}"
-    existing = session.get(Message, key)
+    existing = session.scalar(select(Message).where(Message.id == key).with_for_update())
     if existing:
         if (existing.room_id, existing.account_id, existing.sent_at) != (item.room_id, item.account_id, item.sent_at):
             raise DomainError("identity_conflict", "同じIDの発言属性が一致しません。取り込みを中止しました。")

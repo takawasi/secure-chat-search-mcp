@@ -64,7 +64,7 @@ def index_messages(db, embedder, batch_size=32):
         with db.session() as session:
             for (key, body, version), vector in zip(batch, vectors):
                 cosine(vector, vector)
-                current = session.get(Message, key)
+                current = session.scalar(select(Message).where(Message.id == key).with_for_update())
                 room = session.get(Room, current.room_id) if current else None
                 if (current and room and room.approved and room.kind == "group" and not current.deleted
                         and current.body == body and current.version_at == version):

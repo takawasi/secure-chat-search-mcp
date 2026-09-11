@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "transport": "real HTTP + Chromium",
+  "checks": [
+    "営業の過去・最新検索",
+    "開発予算の権限差",
+    "利用者切替時の旧本文消去",
+    "退室後の直接取得拒否",
+    "再参加",
+    "最新ログ追加",
+    "初期化",
+    "390px表示"
+  ],
+  "data": "synthetic only"
+}

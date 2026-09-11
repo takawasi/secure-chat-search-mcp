@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def replace(path, old, new):
     target=ROOT/path
     text=target.read_text(encoding='utf-8')
+    if new in text:
+        return
     if old in text:
         if text.count(old)!=1:
             raise RuntimeError(f'置換対象が一意ではありません: {path}')

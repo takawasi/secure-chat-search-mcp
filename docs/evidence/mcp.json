@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "transport": "real HTTP + official MCP ClientSession",
+  "tools": [
+    "fetch",
+    "read_room_period",
+    "search"
+  ],
+  "data": "synthetic only"
+}

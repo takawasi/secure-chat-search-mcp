@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "dimensions": 384,
+  "indexed": 10,
+  "query": "納品する日を後ろにずらす相談",
+  "top_results": [
+    "社内文書を参照する際は根拠と更新日を確認してください。",
+    "星野商事との初回相談です。希望納期は6月30日です。",
+    "支払条件は月末締め、翌月末払いです。"
+  ],
+  "scope": "合成10発言の接続・権限・索引確認。顧客データでの精度評価や大規模ベンチマークではない。"
+}

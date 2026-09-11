@@ -12,6 +12,7 @@
 | `pyproject.toml` | Python依存・CLIエントリーポイント |
 | `src/secure_chat_search/core.py` | 設定、DBモデル、DB種別ガード、時刻・ID検証、監査、共通エラー |
 | `src/secure_chat_search/auth.py` | 本人の識別、サービス利用可否、現在参加ルームと承認対象の積集合 |
+| `src/secure_chat_search/integration.py` | 既存MCPの検証済み本人・既存allow-list・現在参加を引き継ぐ埋込用アダプター |
 | `src/secure_chat_search/chatwork.py` | 固定ホストの読取APIと、既存PoCが管理する認証情報の読取 |
 | `src/secure_chat_search/ingestion.py` | 正規化CSV、全件検証、履歴入替、ID有無の区別、更新・削除・重複照合 |
 | `src/secure_chat_search/sync.py` | 最新範囲の重複取得、欠損疑い、Webhook署名・永続受信箱・反映 |
