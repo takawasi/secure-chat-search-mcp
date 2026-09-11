@@ -1,7 +1,7 @@
 # 検証記録
 
-検証元コミット：`7939143a9c65cf6e2744025f4586abe1bbc17518`
-実行記録：[GitHub Actions](https://github.com/takawasi/secure-chat-search-mcp/actions/runs/34574470892)
+検証元コミット：`b0796ec3fb3aa2cc092b686e4716a84612158176`
+実行記録：[GitHub Actions](https://github.com/takawasi/secure-chat-search-mcp/actions/runs/34575143943)
 
 結果は合成データによる参照実装の検証です。顧客環境での統合検収・本番安全性の保証ではありません。
 
